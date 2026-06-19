@@ -11,7 +11,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.obfuscador</groupId>
+                <groupId>com.ploybot</groupId>
     <artifactId>obfuscador-parent</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
@@ -55,7 +55,7 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>com.obfuscador</groupId>
+    <groupId>com.ploybot</groupId>
                 <artifactId>obfuscador-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
