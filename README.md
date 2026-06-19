@@ -1,0 +1,275 @@
+# Prompt Shield
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Java](https://img.shields.io/badge/Java-17+-green.svg)](https://www.oracle.com/java/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3+-green.svg)](https://spring.io/projects/spring-boot)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-1.0+-green.svg)](https://spring.io/projects/spring-ai)
+
+Library for obfuscating sensitive data in AI prompts. Protect PII (Personally Identifiable Information) before sending to LLMs.
+
+## Features
+
+- **Obfuscate sensitive data**: DNI, NIE, email, phone, and custom types
+- **Bidirectional**: Obfuscate prompts and restore original values in responses
+- **JSON support**: Obfuscate objects with type preservation
+- **Spring Boot Starter**: Auto-configuration with sensible defaults
+- **Spring AI Advisor**: Seamless integration with Spring AI
+- **Configurable**: Custom prefixes, separators, and data types
+
+## Quick Start
+
+### Maven
+
+```xml
+<dependency>
+    <groupId>com.ploybot</groupId>
+    <artifactId>prompt-shield-core</artifactId>
+    <version>1.0.0</version>
+</dependency>
+
+<!-- Spring Boot Starter (optional) -->
+<dependency>
+    <groupId>com.ploybot</groupId>
+    <artifactId>prompt-shield-spring-boot-starter</artifactId>
+    <version>1.0.0</version>
+</dependency>
+
+<!-- Spring AI Advisor (optional) -->
+<dependency>
+    <groupId>com.ploybot</groupId>
+    <artifactId>prompt-shield-spring-ai-advisor</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+### Gradle
+
+```groovy
+implementation 'com.ploybot:prompt-shield-core:1.0.0'
+implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.0.0'
+implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.0.0'
+```
+
+## Usage
+
+### Basic Usage
+
+```java
+import com.ploybot.promptshield.engine.ObfuscationEngine;
+
+ObfuscationEngine engine = new ObfuscationEngine();
+
+// Obfuscate text
+String obfuscated = engine.ofuscar("Mi DNI es 12345678Z y mi email es user@email.com");
+// Result: "Mi DNI es {{REDACTED:DNI#1c9f96}} y mi email es {{REDACTED:EMAIL#e5a3b2}}"
+
+// Restore original values
+String restored = engine.restaurar(obfuscated);
+// Result: "Mi DNI es 12345678Z y mi email es user@email.com"
+```
+
+### Obfuscate Specific Types
+
+```java
+// Obfuscate only DNI
+String obfuscated = engine.ofuscar("DNI: 12345678Z, Tel: 612345678", "DNI");
+// Result: "DNI: {{REDACTED:DNI#1c9f96}}, Tel: 612345678"
+```
+
+### JSON Obfuscation
+
+```java
+// Obfuscate JSON string
+String json = "{\"dni\":\"12345678Z\",\"email\":\"user@email.com\"}";
+String obfuscated = engine.ofuscarObjetoJson(json);
+// Result: "{\"dni\":\"{{REDACTED:DNI#1c9f96}}\",\"email\":\"{{REDACTED:EMAIL#e5a3b2}}\"}"
+
+// Restore JSON
+String restored = engine.restaurarObjetoJson(obfuscated);
+```
+
+### Object Obfuscation
+
+```java
+Persona persona = new Persona("Juan", "12345678Z", "612345678", "juan@email.com");
+String obfuscated = engine.ofuscarObjeto(persona);
+// Result: JSON with obfuscated values
+
+Persona restored = engine.restaurarObjeto(obfuscated, Persona.class);
+```
+
+## Spring Boot Integration
+
+### Configuration
+
+```yaml
+# application.yml
+obfuscador:
+  enabled: true
+  hash-algorithm: SHA-256
+  hash-length: 6
+  storage-type: memory
+  redacted-prefix: "REDACTED"  # Change to "OBFUSCADO", "OCULTO", etc.
+  tag-separator: "#"            # Change to "_", "-", etc.
+  custom-types:
+    CODIGO_POSTAL:
+      pattern: "\d{5}"
+    N_CUENTA:
+      pattern: "ES\d{22}"
+```
+
+### Using @Obfuscate Annotation
+
+```java
+@Service
+public class MyService {
+
+    @Obfuscate
+    public String processPrompt(String prompt) {
+        // prompt is automatically obfuscated
+        return aiClient.call(prompt);
+    }
+    
+    @Obfuscate(types = {"DNI", "EMAIL"})
+    public String processSpecific(String prompt) {
+        // Only DNI and EMAIL are obfuscated
+        return aiClient.call(prompt);
+    }
+}
+```
+
+## Spring AI Advisor Integration
+
+### Configuration
+
+```java
+@Configuration
+public class AIConfig {
+    
+    @Bean
+    public ChatClient chatClient(ChatModel chatModel, PromptShieldAdvisor advisor) {
+        return ChatClient.builder(chatModel)
+            .defaultAdvisors(advisor)
+            .build();
+    }
+}
+```
+
+### Usage
+
+```java
+@Service
+public class AIService {
+    
+    private final ChatClient chatClient;
+    
+    public String askAI(String userMessage) {
+        // Data is automatically obfuscated before sending to AI
+        // and restored in the response
+        return chatClient.prompt()
+            .user(userMessage)
+            .call()
+            .content();
+    }
+}
+```
+
+### Configuration
+
+```yaml
+prompt-shield:
+  advisor:
+    enabled: true
+    order: 0
+    restore-on-response: true
+    hash-algorithm: SHA-256
+    hash-length: 6
+    redacted-prefix: "REDACTED"
+    tag-separator: "#"
+```
+
+## Supported Data Types
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| DNI | `\d{8}[A-Za-z]` | 12345678Z |
+| NIE | `[XYZxyz]\d{7}[A-Za-z]` | X1234567A |
+| EMAIL | `[\w.+-]+@[\w.-]+\.\w{2,}` | user@email.com |
+| TELEFONO | `\d{9}` | 612345678 |
+| CODIGO_POSTAL | `\d{5}` | 28001 |
+| N_CUENTA | `ES\d{22}` | ES1234567890123456789012 |
+
+## Custom Types
+
+```java
+ObfuscationConfig config = new ObfuscationConfig();
+config.addCustomType("CODIGO_POSTAL", "\\d{5}");
+config.addCustomType("N_CUENTA", "ES\\d{22}");
+
+ObfuscationEngine engine = new ObfuscationEngine(config);
+```
+
+## Tag Format
+
+Default format: `{{REDACTED:TYPE#HASH}}`
+
+Examples:
+- `{{REDACTED:DNI#1c9f96}}`
+- `{{REDACTED:EMAIL#e5a3b2}}`
+- `{{REDACTED:TELEFONO#d500e1}}`
+
+### Custom Format
+
+```java
+ObfuscationConfig config = new ObfuscationConfig();
+config.setRedactedPrefix("OBFUSCADO");
+config.setTagSeparator("_");
+
+// Result: {{OBFUSCADO:DNI_1c9f96}}
+```
+
+## Architecture
+
+```
+prompt-shield/
+├── prompt-shield-core/              # Core library
+│   ├── engine/                      # ObfuscationEngine
+│   ├── model/                       # ObfuscationTag, ObfuscationConfig
+│   ├── registry/                    # DataTypeRegistry, SensitiveDataType
+│   ├── hash/                        # HashGenerator
+│   ├── storage/                     # StorageService, InMemoryStorageService
+│   └── exception/                   # Custom exceptions
+│
+├── prompt-shield-spring-boot-starter/  # Spring Boot auto-configuration
+│   ├── autoconfigure/               # Auto-configuration classes
+│   ├── annotation/                  # @Obfuscate annotation
+│   └── interceptor/                 # AOP interceptor
+│
+├── prompt-shield-spring-ai-advisor/    # Spring AI Advisor
+│   ├── advisor/                     # PromptShieldAdvisor
+│   └── autoconfigure/               # Auto-configuration
+│
+└── prompt-shield-example/           # Example project
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/ploybot-ai/prompt-shield/issues)
+- **Documentation**: [GitHub Wiki](https://github.com/ploybot-ai/prompt-shield/wiki)
+
+## Acknowledgments
+
+- Built with [Spring AI](https://spring.io/projects/spring-ai)
+- Part of the [Spring AI Community](https://github.com/spring-ai-community)
