@@ -209,6 +209,28 @@ spring:
 
 ### Configuration
 
+```yaml
+prompt-shield:
+  advisor:
+    enabled: true
+    order: 0
+    restore-on-response: true
+    inject-system-prompt: true  # Auto-inject system prompt to preserve placeholders
+    # system-prompt: "Your custom system prompt"  # Optional custom prompt
+```
+
+### System Prompt
+
+The advisor automatically injects a system prompt that instructs the AI to preserve the obfuscated placeholders. This ensures the AI doesn't modify, remove, or try to "fix" the `{{REDACTED:TYPE#HASH}}` markers.
+
+```java
+// Available system prompts
+PromptShieldAdvisor.SYSTEM_PROMPT_EN  // English
+PromptShieldAdvisor.SYSTEM_PROMPT_ES  // Spanish
+```
+
+### Java Configuration
+
 ```java
 @Configuration
 public class AIConfig {

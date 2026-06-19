@@ -14,6 +14,8 @@ import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -42,7 +44,7 @@ class PromptShieldAdvisorTest {
     @BeforeEach
     void setUp() {
         engine = new ObfuscationEngine();
-        advisor = new PromptShieldAdvisor(engine, 0, true);
+        advisor = new PromptShieldAdvisor(engine, 0, true, true, PromptShieldAdvisor.SYSTEM_PROMPT_EN);
     }
 
     @Test
@@ -61,18 +63,15 @@ class PromptShieldAdvisorTest {
     }
 
     @Test
-    void testObfuscateUserMessage() {
+    void testSystemPromptInjection() {
         // Arrange
         String originalText = "Mi DNI es 12345678Z";
-        String obfuscatedText = engine.ofuscar(originalText);
-        
         UserMessage userMessage = new UserMessage(originalText);
         Prompt prompt = new Prompt(List.of(userMessage));
         ChatClientRequest request = ChatClientRequest.builder()
                 .prompt(prompt)
                 .build();
 
-        // Create response with obfuscated content
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(new AssistantMessage("Respuesta")));
         ChatClientResponse chainResponse = ChatClientResponse.builder()
@@ -81,8 +80,126 @@ class PromptShieldAdvisorTest {
 
         when(callAdvisorChain.nextCall(any(ChatClientRequest.class))).thenAnswer(invocation -> {
             ChatClientRequest req = invocation.getArgument(0);
-            // Verify the request was obfuscated
-            String text = req.prompt().getInstructions().get(0).getText();
+            List<Message> messages = req.prompt().getInstructions();
+            
+            // Verify system prompt was injected
+            assertTrue(messages.size() >= 2);
+            assertTrue(messages.get(0) instanceof SystemMessage);
+            String systemText = ((SystemMessage) messages.get(0)).getText();
+            assertTrue(systemText.contains("{{REDACTED:TYPE#HASH}}"));
+            
+            // Verify user message was obfuscated
+            assertTrue(messages.get(1) instanceof UserMessage);
+            String userText = ((UserMessage) messages.get(1)).getText();
+            assertTrue(userText.contains("{{REDACTED:DNI#"));
+            
+            return chainResponse;
+        });
+
+        // Act
+        ChatClientResponse result = advisor.adviseCall(request, callAdvisorChain);
+
+        // Assert
+        verify(callAdvisorChain, times(1)).nextCall(any(ChatClientRequest.class));
+    }
+
+    @Test
+    void testNoSystemPromptWhenDisabled() {
+        // Arrange
+        PromptShieldAdvisor noSystemPromptAdvisor = new PromptShieldAdvisor(engine, 0, true, false);
+        
+        String originalText = "Mi DNI es 12345678Z";
+        UserMessage userMessage = new UserMessage(originalText);
+        Prompt prompt = new Prompt(List.of(userMessage));
+        ChatClientRequest request = ChatClientRequest.builder()
+                .prompt(prompt)
+                .build();
+
+        ChatResponse chatResponse = mock(ChatResponse.class);
+        when(chatResponse.getResult()).thenReturn(new Generation(new AssistantMessage("Respuesta")));
+        ChatClientResponse chainResponse = ChatClientResponse.builder()
+                .chatResponse(chatResponse)
+                .build();
+
+        when(callAdvisorChain.nextCall(any(ChatClientRequest.class))).thenAnswer(invocation -> {
+            ChatClientRequest req = invocation.getArgument(0);
+            List<Message> messages = req.prompt().getInstructions();
+            
+            // Verify NO system prompt was injected
+            assertTrue(messages.size() == 1);
+            assertTrue(messages.get(0) instanceof UserMessage);
+            
+            return chainResponse;
+        });
+
+        // Act
+        ChatClientResponse result = noSystemPromptAdvisor.adviseCall(request, callAdvisorChain);
+
+        // Assert
+        verify(callAdvisorChain, times(1)).nextCall(any(ChatClientRequest.class));
+    }
+
+    @Test
+    void testNoDuplicateSystemPrompt() {
+        // Arrange - already has a system message
+        SystemMessage existingSystem = new SystemMessage("Existing system prompt");
+        String originalText = "Mi DNI es 12345678Z";
+        UserMessage userMessage = new UserMessage(originalText);
+        Prompt prompt = new Prompt(List.of(existingSystem, userMessage));
+        ChatClientRequest request = ChatClientRequest.builder()
+                .prompt(prompt)
+                .build();
+
+        ChatResponse chatResponse = mock(ChatResponse.class);
+        when(chatResponse.getResult()).thenReturn(new Generation(new AssistantMessage("Respuesta")));
+        ChatClientResponse chainResponse = ChatClientResponse.builder()
+                .chatResponse(chatResponse)
+                .build();
+
+        when(callAdvisorChain.nextCall(any(ChatClientRequest.class))).thenAnswer(invocation -> {
+            ChatClientRequest req = invocation.getArgument(0);
+            List<Message> messages = req.prompt().getInstructions();
+            
+            // Verify only one system message (the existing one)
+            long systemCount = messages.stream()
+                    .filter(m -> m instanceof SystemMessage)
+                    .count();
+            assertEquals(1, systemCount);
+            
+            // Verify the existing system message is preserved
+            assertEquals("Existing system prompt", ((SystemMessage) messages.get(0)).getText());
+            
+            return chainResponse;
+        });
+
+        // Act
+        ChatClientResponse result = advisor.adviseCall(request, callAdvisorChain);
+
+        // Assert
+        verify(callAdvisorChain, times(1)).nextCall(any(ChatClientRequest.class));
+    }
+
+    @Test
+    void testObfuscateUserMessage() {
+        // Arrange
+        String originalText = "Mi DNI es 12345678Z";
+        UserMessage userMessage = new UserMessage(originalText);
+        Prompt prompt = new Prompt(List.of(userMessage));
+        ChatClientRequest request = ChatClientRequest.builder()
+                .prompt(prompt)
+                .build();
+
+        ChatResponse chatResponse = mock(ChatResponse.class);
+        when(chatResponse.getResult()).thenReturn(new Generation(new AssistantMessage("Respuesta")));
+        ChatClientResponse chainResponse = ChatClientResponse.builder()
+                .chatResponse(chatResponse)
+                .build();
+
+        when(callAdvisorChain.nextCall(any(ChatClientRequest.class))).thenAnswer(invocation -> {
+            ChatClientRequest req = invocation.getArgument(0);
+            List<Message> messages = req.prompt().getInstructions();
+            // User message is at index 1 (after system prompt)
+            String text = ((UserMessage) messages.get(1)).getText();
             assertTrue(text.contains("{{REDACTED:DNI#"));
             return chainResponse;
         });
@@ -98,7 +215,6 @@ class PromptShieldAdvisorTest {
     void testObfuscateWithMultipleTypes() {
         // Arrange
         String originalText = "DNI: 12345678Z, Email: user@test.com";
-        
         UserMessage userMessage = new UserMessage(originalText);
         Prompt prompt = new Prompt(List.of(userMessage));
         ChatClientRequest request = ChatClientRequest.builder()
@@ -113,7 +229,8 @@ class PromptShieldAdvisorTest {
 
         when(callAdvisorChain.nextCall(any(ChatClientRequest.class))).thenAnswer(invocation -> {
             ChatClientRequest req = invocation.getArgument(0);
-            String text = req.prompt().getInstructions().get(0).getText();
+            List<Message> messages = req.prompt().getInstructions();
+            String text = ((UserMessage) messages.get(1)).getText();
             assertTrue(text.contains("{{REDACTED:DNI#"));
             assertTrue(text.contains("{{REDACTED:EMAIL#"));
             return chainResponse;
@@ -136,7 +253,6 @@ class PromptShieldAdvisorTest {
                 .prompt(prompt)
                 .build();
 
-        // Response with obfuscated content
         String responseText = "Tu DNI es {{REDACTED:DNI#1c9f96}}";
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(new AssistantMessage(responseText)));
@@ -149,14 +265,14 @@ class PromptShieldAdvisorTest {
         // Act
         ChatClientResponse result = advisor.adviseCall(request, callAdvisorChain);
 
-        // Assert - the advisor should restore the response
+        // Assert
         verify(callAdvisorChain, times(1)).nextCall(any(ChatClientRequest.class));
     }
 
     @Test
     void testNoRestoreOnResponse() {
         // Arrange
-        PromptShieldAdvisor noRestoreAdvisor = new PromptShieldAdvisor(engine, 0, false);
+        PromptShieldAdvisor noRestoreAdvisor = new PromptShieldAdvisor(engine, 0, false, true);
         
         String originalText = "Mi DNI es 12345678Z";
         UserMessage userMessage = new UserMessage(originalText);
@@ -165,7 +281,6 @@ class PromptShieldAdvisorTest {
                 .prompt(prompt)
                 .build();
 
-        // Response with obfuscated content
         String responseText = "Tu DNI es {{REDACTED:DNI#1c9f96}}";
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(new AssistantMessage(responseText)));
@@ -178,9 +293,8 @@ class PromptShieldAdvisorTest {
         // Act
         ChatClientResponse result = noRestoreAdvisor.adviseCall(request, callAdvisorChain);
 
-        // Assert - should NOT restore because restoreOnResponse is false
+        // Assert
         verify(callAdvisorChain, times(1)).nextCall(any(ChatClientRequest.class));
-        // The response should still contain the obfuscated tag (not restored)
         assertNotNull(result);
         assertNotNull(result.chatResponse());
         assertNotNull(result.chatResponse().getResult());
@@ -206,7 +320,9 @@ class PromptShieldAdvisorTest {
 
         when(callAdvisorChain.nextCall(any(ChatClientRequest.class))).thenAnswer(invocation -> {
             ChatClientRequest req = invocation.getArgument(0);
-            String text = req.prompt().getInstructions().get(0).getText();
+            List<Message> messages = req.prompt().getInstructions();
+            // Assistant message is at index 1 (after system prompt)
+            String text = ((AssistantMessage) messages.get(1)).getText();
             assertTrue(text.contains("{{REDACTED:DNI#"));
             return chainResponse;
         });
@@ -225,7 +341,7 @@ class PromptShieldAdvisorTest {
         config.setRedactedPrefix("OCULTO");
         StorageService storageService = new InMemoryStorageService();
         ObfuscationEngine customEngine = new ObfuscationEngine(config, storageService);
-        PromptShieldAdvisor customAdvisor = new PromptShieldAdvisor(customEngine);
+        PromptShieldAdvisor customAdvisor = new PromptShieldAdvisor(customEngine, 0, true, true, "Custom prompt");
 
         String originalText = "Mi DNI es 12345678Z";
         UserMessage userMessage = new UserMessage(originalText);
@@ -242,7 +358,8 @@ class PromptShieldAdvisorTest {
 
         when(callAdvisorChain.nextCall(any(ChatClientRequest.class))).thenAnswer(invocation -> {
             ChatClientRequest req = invocation.getArgument(0);
-            String text = req.prompt().getInstructions().get(0).getText();
+            List<Message> messages = req.prompt().getInstructions();
+            String text = ((UserMessage) messages.get(1)).getText();
             assertTrue(text.contains("{{OCULTO:DNI#"));
             return chainResponse;
         });
@@ -294,7 +411,6 @@ class PromptShieldAdvisorTest {
                 .prompt(prompt)
                 .build();
 
-        // Response with obfuscated content
         String responseText = "Tu DNI es {{REDACTED:DNI#1c9f96}}";
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(new AssistantMessage(responseText)));
@@ -334,8 +450,9 @@ class PromptShieldAdvisorTest {
 
         when(callAdvisorChain.nextCall(any(ChatClientRequest.class))).thenAnswer(invocation -> {
             ChatClientRequest req = invocation.getArgument(0);
-            String text = req.prompt().getInstructions().get(0).getText();
-            // Should not contain any redacted tags
+            List<Message> messages = req.prompt().getInstructions();
+            String text = ((UserMessage) messages.get(1)).getText();
+            // Should not contain any redacted tags (only system prompt has them)
             assertFalse(text.contains("{{REDACTED:"));
             return chainResponse;
         });

@@ -1,5 +1,6 @@
 package com.ploybot.promptshield.spring.ai.autoconfigure;
 
+import com.ploybot.promptshield.spring.ai.advisor.PromptShieldAdvisor;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.HashMap;
@@ -13,6 +14,8 @@ public class PromptShieldAdvisorProperties {
     private int hashLength = 6;
     private int order = 0;
     private boolean restoreOnResponse = true;
+    private boolean injectSystemPrompt = true;
+    private String systemPrompt = PromptShieldAdvisor.SYSTEM_PROMPT_EN;
     private final Map<String, CustomTypeProperties> customTypes = new HashMap<>();
 
     public boolean isEnabled() {
@@ -53,6 +56,22 @@ public class PromptShieldAdvisorProperties {
 
     public void setRestoreOnResponse(boolean restoreOnResponse) {
         this.restoreOnResponse = restoreOnResponse;
+    }
+
+    public boolean isInjectSystemPrompt() {
+        return injectSystemPrompt;
+    }
+
+    public void setInjectSystemPrompt(boolean injectSystemPrompt) {
+        this.injectSystemPrompt = injectSystemPrompt;
+    }
+
+    public String getSystemPrompt() {
+        return systemPrompt;
+    }
+
+    public void setSystemPrompt(String systemPrompt) {
+        this.systemPrompt = systemPrompt;
     }
 
     public Map<String, CustomTypeProperties> getCustomTypes() {

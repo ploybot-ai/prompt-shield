@@ -57,7 +57,9 @@ public class PromptShieldAdvisorAutoConfiguration {
         return new PromptShieldAdvisor(
                 engine,
                 properties.getOrder(),
-                properties.isRestoreOnResponse()
+                properties.isRestoreOnResponse(),
+                properties.isInjectSystemPrompt(),
+                properties.getSystemPrompt()
         );
     }
 }

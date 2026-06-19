@@ -17,3 +17,14 @@ obfuscador:
       pattern: "\d{5}"
     N_CUENTA:
       pattern: "ES\d{22}"
+
+prompt-shield:
+  advisor:
+    enabled: true
+    order: 0
+    restore-on-response: true
+    inject-system-prompt: true
+    # system-prompt: "Your custom system prompt here"
+    # Available constants:
+    # - PromptShieldAdvisor.SYSTEM_PROMPT_EN (English)
+    # - PromptShieldAdvisor.SYSTEM_PROMPT_ES (Spanish)
