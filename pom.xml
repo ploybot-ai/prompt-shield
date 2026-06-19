@@ -51,6 +51,8 @@
         <module>prompt-shield-core</module>
         <module>prompt-shield-spring-boot-starter</module>
         <module>prompt-shield-spring-ai-advisor</module>
+        <module>prompt-shield-storage-redis</module>
+        <module>prompt-shield-storage-jpa</module>
     </modules>
 
     <dependencyManagement>
@@ -63,6 +65,16 @@
             <dependency>
                 <groupId>com.ploybot</groupId>
                 <artifactId>prompt-shield-spring-ai-advisor</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.ploybot</groupId>
+                <artifactId>prompt-shield-storage-redis</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.ploybot</groupId>
+                <artifactId>prompt-shield-storage-jpa</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

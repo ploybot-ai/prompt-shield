@@ -14,8 +14,8 @@
     - **D) Wrapper object**: Envolver en `{"_obfuscated": true, "data": {...}, "hashes": {...}}`
   - **Recomendación**: Opción A (balance entre simplicidad y funcionalidad)
 - [x] Tests de integración con Spring AI
-- [ ] Soporte para Redis como StorageService
-- [ ] Soporte para JPA/H2 como StorageService
+- [x] Soporte para Redis como StorageService
+- [x] Soporte para JPA/H2 como StorageService
 
 ## Baja prioridad
 - [ ] Métricas de obuscação (cuántos datos se ofuscan por request)
