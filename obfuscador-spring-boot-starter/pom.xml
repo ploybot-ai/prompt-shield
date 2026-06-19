@@ -12,7 +12,13 @@
 
     <artifactId>obfuscador-spring-boot-starter</artifactId>
     <name>Obfuscador - Spring Boot Starter</name>
-    <description>Spring Boot Starter for prompt obfuscation</description>
+    <description>Spring Boot Starter for prompt obfuscation - ofusca datos sensibles en prompts de IA</description>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.deploy.skip>false</maven.deploy.skip>
+        <maven.install.skip>false</maven.install.skip>
+    </properties>
 
     <dependencies>
         <dependency>
