@@ -15,6 +15,7 @@ Library for obfuscating sensitive data in AI prompts. Protect PII (Personally Id
 - **Spring Boot Starter**: Auto-configuration with sensible defaults
 - **Spring AI Advisor**: Seamless integration with Spring AI
 - **Configurable**: Custom prefixes, separators, and data types
+- **Multiple storage backends**: In-memory, Redis, JPA/H2
 
 ## Quick Start
 
@@ -136,6 +137,72 @@ public class MyService {
         return aiClient.call(prompt);
     }
 }
+```
+
+## Storage Backends
+
+Prompt Shield supports multiple storage backends for obfuscation tags:
+
+### In-Memory (Default)
+
+```yaml
+obfuscador:
+  storage:
+    type: memory
+```
+
+### Redis
+
+```xml
+<dependency>
+    <groupId>com.ploybot</groupId>
+    <artifactId>prompt-shield-storage-redis</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+```yaml
+obfuscador:
+  storage:
+    type: redis
+  redis:
+    ttl-hours: 24
+
+spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+```
+
+### JPA/H2
+
+```xml
+<dependency>
+    <groupId>com.ploybot</groupId>
+    <artifactId>prompt-shield-storage-jpa</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+```yaml
+obfuscador:
+  storage:
+    type: jpa
+  jpa:
+    ttl-hours: 24
+    cleanup-enabled: true
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:promptshield
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  h2:
+    console:
+      enabled: true
 ```
 
 ## Spring AI Advisor Integration
