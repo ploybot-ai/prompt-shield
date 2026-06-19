@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: obfuscador-example
+
+obfuscador:
+  enabled: true
+  hash-algorithm: SHA-256
+  hash-length: 6
+  storage-type: memory
+  custom-types:
+    CODIGO_POSTAL:
+      pattern: "\d{5}"
+    N_CUENTA:
+      pattern: "ES\d{22}"
