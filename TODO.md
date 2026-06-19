@@ -13,7 +13,7 @@
     - **C) Fake values únicos**: Usar `hash.hashCode() % 1000000` en vez de `0`
     - **D) Wrapper object**: Envolver en `{"_obfuscated": true, "data": {...}, "hashes": {...}}`
   - **Recomendación**: Opción A (balance entre simplicidad y funcionalidad)
-- [ ] Añadir tests de integración con Spring AI
+- [x] Tests de integración con Spring AI
 - [ ] Soporte para Redis como StorageService
 - [ ] Soporte para JPA/H2 como StorageService
 
