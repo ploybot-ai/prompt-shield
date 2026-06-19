@@ -29,7 +29,7 @@ jobs:
 
     - name: Generate test report
       if: always()
-      uses: dorny/test-reporter@v1
+      uses: dorny/test-reporter@v3
       with:
         name: Maven Tests
         path: '**/surefire-reports/TEST-*.xml'
