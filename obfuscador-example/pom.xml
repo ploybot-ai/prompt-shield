@@ -5,19 +5,19 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-            <groupId>com.ploybot</groupId>
-        <artifactId>obfuscador-parent</artifactId>
+        <groupId>com.ploybot</groupId>
+        <artifactId>prompt-shield-parent</artifactId>
         <version>1.0.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>obfuscador-example</artifactId>
-    <name>Obfuscador - Example</name>
-    <description>Example project using Obfuscador library</description>
+    <artifactId>prompt-shield-example</artifactId>
+    <name>Prompt Shield - Example</name>
+    <description>Example project using Prompt Shield library</description>
 
     <dependencies>
         <dependency>
-        <groupId>com.ploybot</groupId>
-            <artifactId>obfuscador-spring-boot-starter</artifactId>
+            <groupId>com.ploybot</groupId>
+            <artifactId>prompt-shield-spring-boot-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

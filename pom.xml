@@ -12,13 +12,13 @@
     </parent>
 
                 <groupId>com.ploybot</groupId>
-    <artifactId>obfuscador-parent</artifactId>
+    <artifactId>prompt-shield-parent</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <name>Obfuscador - Parent</name>
-    <description>Librería para ofuscación de datos sensibles en prompts de IA</description>
-    <url>https://github.com/USUARIO/obfuscador</url>
+    <name>Prompt Shield - Parent</name>
+    <description>Library for obfuscating sensitive data in AI prompts</description>
+    <url>https://github.com/ploybot-ai/prompt-shield</url>
 
     <licenses>
         <license>
@@ -35,9 +35,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git@github.com:USUARIO/obfuscador.git</connection>
-        <developerConnection>scm:git:git@github.com:USUARIO/obfuscador.git</developerConnection>
-        <url>https://github.com/USUARIO/obfuscador</url>
+        <connection>scm:git:git@github.com:ploybot-ai/prompt-shield.git</connection>
+        <developerConnection>scm:git:git@github.com:ploybot-ai/prompt-shield.git</developerConnection>
+        <url>https://github.com/ploybot-ai/prompt-shield</url>
     </scm>
 
     <properties>
@@ -48,15 +48,15 @@
     </properties>
 
     <modules>
-        <module>obfuscador-core</module>
-        <module>obfuscador-spring-boot-starter</module>
+        <module>prompt-shield-core</module>
+        <module>prompt-shield-spring-boot-starter</module>
     </modules>
 
     <dependencyManagement>
         <dependencies>
             <dependency>
     <groupId>com.ploybot</groupId>
-                <artifactId>obfuscador-core</artifactId>
+                <artifactId>prompt-shield-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
