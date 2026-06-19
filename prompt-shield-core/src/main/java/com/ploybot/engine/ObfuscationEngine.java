@@ -32,13 +32,14 @@ public class ObfuscationEngine {
     private final StorageService storageService;
     private final ObfuscationConfig config;
 
-    private static final Pattern TAG_PATTERN = Pattern.compile("<([A-Z]+)_([a-f0-9]{6})>");
+    private Pattern tagPattern;
 
     public ObfuscationEngine(ObfuscationConfig config, StorageService storageService) {
         this.config = config;
         this.hashGenerator = new HashGenerator(config.getHashAlgorithm(), config.getHashLength());
         this.registry = new DataTypeRegistry();
         this.storageService = storageService;
+        this.tagPattern = buildTagPattern();
 
         for (Map.Entry<String, ObfuscationConfig.CustomTypeConfig> entry : config.getCustomTypes().entrySet()) {
             registry.register(entry.getKey(), entry.getValue().getPattern());
@@ -47,6 +48,13 @@ public class ObfuscationEngine {
 
     public ObfuscationEngine() {
         this(new ObfuscationConfig(), new InMemoryStorageService());
+    }
+
+    private Pattern buildTagPattern() {
+        String prefix = Pattern.quote("{{" + config.getRedactedPrefix() + ":");
+        String separator = Pattern.quote(config.getTagSeparator());
+        String suffix = Pattern.quote("}}");
+        return Pattern.compile(prefix + "([A-Z_]+)" + separator + "([a-f0-9]{" + config.getHashLength() + "})" + suffix);
     }
 
     public String ofuscar(String text) {
@@ -91,17 +99,22 @@ public class ObfuscationEngine {
         while (matcher.find()) {
             String matchedValue = matcher.group();
             String hash = hashGenerator.generate(matchedValue);
-            ObfuscationTag tag = new ObfuscationTag(typeName, hash, matchedValue);
+            String tag = formatTag(typeName, hash);
 
             if (!storageService.contains(hash)) {
-                storageService.store(hash, tag);
+                ObfuscationTag obfuscationTag = new ObfuscationTag(typeName, hash, matchedValue);
+                storageService.store(hash, obfuscationTag);
             }
 
-            matcher.appendReplacement(result, Matcher.quoteReplacement(tag.getTag()));
+            matcher.appendReplacement(result, Matcher.quoteReplacement(tag));
         }
 
         matcher.appendTail(result);
         return result.toString();
+    }
+
+    private String formatTag(String typeName, String hash) {
+        return "{{" + config.getRedactedPrefix() + ":" + typeName + config.getTagSeparator() + hash + "}}";
     }
 
     public String restaurar(String text) {
@@ -109,7 +122,7 @@ public class ObfuscationEngine {
             return text;
         }
 
-        Matcher matcher = TAG_PATTERN.matcher(text);
+        Matcher matcher = tagPattern.matcher(text);
         StringBuffer result = new StringBuffer();
 
         while (matcher.find()) {
@@ -133,7 +146,7 @@ public class ObfuscationEngine {
         if (text == null || text.isEmpty()) {
             return false;
         }
-        return TAG_PATTERN.matcher(text).find();
+        return tagPattern.matcher(text).find();
     }
 
     public List<ObfuscationTag> extractTags(String text) {
@@ -142,7 +155,7 @@ public class ObfuscationEngine {
             return tags;
         }
 
-        Matcher matcher = TAG_PATTERN.matcher(text);
+        Matcher matcher = tagPattern.matcher(text);
         while (matcher.find()) {
             String type = matcher.group(1);
             String hash = matcher.group(2);

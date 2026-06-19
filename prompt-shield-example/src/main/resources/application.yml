@@ -3,13 +3,15 @@ server:
 
 spring:
   application:
-    name: obfuscador-example
+    name: prompt-shield-example
 
 obfuscador:
   enabled: true
   hash-algorithm: SHA-256
   hash-length: 6
   storage-type: memory
+  redacted-prefix: "REDACTED"
+  tag-separator: "#"
   custom-types:
     CODIGO_POSTAL:
       pattern: "\d{5}"

@@ -9,6 +9,8 @@ public class ObfuscationConfig {
     private int hashLength = 6;
     private String storageType = "memory";
     private boolean enabled = true;
+    private String redactedPrefix = "REDACTED";
+    private String tagSeparator = "#";
     private final Map<String, CustomTypeConfig> customTypes = new HashMap<>();
 
     public String getHashAlgorithm() {
@@ -41,6 +43,22 @@ public class ObfuscationConfig {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public String getRedactedPrefix() {
+        return redactedPrefix;
+    }
+
+    public void setRedactedPrefix(String redactedPrefix) {
+        this.redactedPrefix = redactedPrefix;
+    }
+
+    public String getTagSeparator() {
+        return tagSeparator;
+    }
+
+    public void setTagSeparator(String tagSeparator) {
+        this.tagSeparator = tagSeparator;
     }
 
     public Map<String, CustomTypeConfig> getCustomTypes() {

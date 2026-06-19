@@ -31,6 +31,8 @@ public class ObfuscationAutoConfiguration {
         config.setHashLength(properties.getHashLength());
         config.setStorageType(properties.getStorageType());
         config.setEnabled(properties.isEnabled());
+        config.setRedactedPrefix(properties.getRedactedPrefix());
+        config.setTagSeparator(properties.getTagSeparator());
 
         for (var entry : properties.getCustomTypes().entrySet()) {
             config.addCustomType(entry.getKey(), entry.getValue().getPattern());
