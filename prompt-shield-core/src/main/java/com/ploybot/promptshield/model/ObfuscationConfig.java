@@ -65,6 +65,14 @@ public class ObfuscationConfig {
         return customTypes;
     }
 
+    public Map<String, String> getCustomPatterns() {
+        Map<String, String> patterns = new HashMap<>();
+        for (Map.Entry<String, CustomTypeConfig> entry : customTypes.entrySet()) {
+            patterns.put(entry.getKey(), entry.getValue().getPattern());
+        }
+        return patterns;
+    }
+
     public void addCustomType(String name, String pattern) {
         this.customTypes.put(name, new CustomTypeConfig(pattern));
     }
