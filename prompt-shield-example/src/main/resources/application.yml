@@ -32,7 +32,10 @@ prompt-shield:
     order: 0
     restore-on-response: true
     inject-system-prompt: true
-    # system-prompt: "Your custom system prompt here"
-    # Available constants:
-    # - PromptShieldAdvisor.SYSTEM_PROMPT_EN (English)
-    # - PromptShieldAdvisor.SYSTEM_PROMPT_ES (Spanish)
+    # Use built-in system prompt (English or Spanish):
+    # system-prompt: "When you see a placeholder like {{REDACTED:TYPE#HASH}}, keep it exactly as-is in your response. Never modify, translate, or remove these placeholders. They will be restored later with the original values."
+    # Or use the default (English):
+    # system-prompt: ""
+    # Or use Spanish:
+    # system-prompt: ""
+    # The default system prompt in PromptShieldAdvisor handles this automatically
