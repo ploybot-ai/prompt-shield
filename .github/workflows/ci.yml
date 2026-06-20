@@ -67,6 +67,9 @@ jobs:
       with:
         name: jars
         path: |
-          obfuscador-core/target/*.jar
-          obfuscador-spring-boot-starter/target/*.jar
+          prompt-shield-core/target/*.jar
+          prompt-shield-spring-boot-starter/target/*.jar
+          prompt-shield-spring-ai-advisor/target/*.jar
+          prompt-shield-storage-redis/target/*.jar
+          prompt-shield-storage-jpa/target/*.jar
         retention-days: 30
