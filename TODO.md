@@ -5,7 +5,7 @@
 - [x] Documentación completa (README con ejemplos de uso)
 
 ## Media prioridad
-- [ ] Integrar librería de detección de entidades (NER)
+- [ ] Integrar librería de detección de entidades (Named Entity Recognition)
   - **Objetivo**: Detectar automáticamente entidades sensibles (DNI, email, teléfonos, etc.) sin depender de patrones regex
   - **Opciones posibles**:
     - **A) Apache OpenNLP**: Open source, soporta NER en español
