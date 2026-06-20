@@ -5,6 +5,14 @@
 - [x] Documentación completa (README con ejemplos de uso)
 
 ## Media prioridad
+- [ ] Integrar librería de detección de entidades (NER)
+  - **Objetivo**: Detectar automáticamente entidades sensibles (DNI, email, teléfonos, etc.) sin depender de patrones regex
+  - **Opciones posibles**:
+    - **A) Apache OpenNLP**: Open source, soporta NER en español
+    - **B) Stanford CoreNLP**: Más preciso, pero pesado
+    - **C) Lingua**: Ligero, multi-idioma, detección de idioma
+    - **D) Custom ML model**: Entrenar modelo específico para datos españoles
+  - **Recomendación**: Apache OpenNLP o Lingua (balance entre precisión y recursos)
 - [ ] Soporte para ofuscar números y booleanos en JSON
   - **Problema actual**: Solo se ofuscan strings. Numbers y booleans quedan sin modificar.
   - **Opciones posibles**:
