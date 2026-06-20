@@ -4,6 +4,14 @@ server:
 spring:
   application:
     name: prompt-shield-example
+  # Spring AI Configuration
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:your-api-key-here}
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.7
 
 obfuscador:
   enabled: true

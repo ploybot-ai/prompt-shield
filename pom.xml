@@ -54,6 +54,7 @@
         <module>prompt-shield-storage-redis</module>
         <module>prompt-shield-storage-jpa</module>
         <module>prompt-shield-ner-opennlp</module>
+        <module>prompt-shield-example</module>
     </modules>
 
     <dependencyManagement>
