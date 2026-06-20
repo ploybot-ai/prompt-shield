@@ -357,6 +357,7 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 - **Issues**: [GitHub Issues](https://github.com/ploybot-ai/prompt-shield/issues)
 - **Documentation**: [GitHub Wiki](https://github.com/ploybot-ai/prompt-shield/wiki)
+- **Tutorial**: [Prompt Shield Tutorial (ES/EN)](https://learning-ai.eu/prompt-shield-tutorial.html)
 
 ## Acknowledgments
 
