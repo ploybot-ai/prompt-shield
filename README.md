@@ -363,3 +363,7 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 - Built with [Spring AI](https://spring.io/projects/spring-ai)
 - Part of the [Spring AI Community](https://github.com/spring-ai-community)
+
+## Company
+
+Developed by [Ploybot Intelligence S.L.](https://ploybot.com)
