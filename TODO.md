@@ -1,8 +1,8 @@
 # TODO / Mejoras pendientes
 
 ## Alta prioridad
-- [ ] Publicar en Maven Central (com.ploybot)
-- [ ] Documentación completa (README con ejemplos de uso)
+- [x] Publicar en Maven Central (com.ploybot)
+- [x] Documentación completa (README con ejemplos de uso)
 
 ## Media prioridad
 - [ ] Soporte para ofuscar números y booleanos en JSON
@@ -18,7 +18,7 @@
 - [x] Soporte para JPA/H2 como StorageService
 
 ## Baja prioridad
-- [ ] Métricas de obuscação (cuántos datos se ofuscan por request)
+- [ ] Métricas de obfuscación (cuántos datos se obfuscan por request)
 - [ ] Rate limiting por tipo de dato
-- [ ] Soporte para ofuscar en respuestas del AI (no solo prompts)
+- [ ] Soporte para obfuscar en respuestas del AI (no solo prompts)
 - [ ] Benchmark de rendimiento
