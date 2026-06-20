@@ -25,30 +25,30 @@ Library for obfuscating sensitive data in AI prompts. Protect PII (Personally Id
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-core</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-beta.1</version>
 </dependency>
 
 <!-- Spring Boot Starter (optional) -->
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-spring-boot-starter</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-beta.1</version>
 </dependency>
 
 <!-- Spring AI Advisor (optional) -->
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-spring-ai-advisor</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-beta.1</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'com.ploybot:prompt-shield-core:1.0.0'
-implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.0.0'
-implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.0.0'
+implementation 'com.ploybot:prompt-shield-core:1.0.0-beta.1'
+implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.0.0-beta.1'
+implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.0.0-beta.1'
 ```
 
 ## Usage
