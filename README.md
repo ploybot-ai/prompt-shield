@@ -51,6 +51,8 @@ implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.0.0-beta.1'
 implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.0.0-beta.1'
 ```
 
+> **Note**: For the latest development version, use `1.0.1-SNAPSHOT`
+
 ## Usage
 
 ### Basic Usage
