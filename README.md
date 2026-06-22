@@ -340,8 +340,94 @@ prompt-shield/
 │   ├── advisor/                     # PromptShieldAdvisor
 │   └── autoconfigure/               # Auto-configuration
 │
+├── prompt-shield-api-proxy/            # OpenAI-compatible API Proxy
+│   ├── controller/                  # ProxyController
+│   ├── client/                      # AiProviderClient
+│   ├── service/                     # ProxyService
+│   ├── model/                       # ChatCompletionRequest/Response
+│   └── autoconfigure/               # Auto-configuration
+│
 └── prompt-shield-example/           # Example project
 ```
+
+## API Proxy
+
+An OpenAI-compatible API proxy that automatically obfuscates PII before forwarding requests to any AI provider.
+
+### Features
+
+- **OpenAI-compatible**: Works with any provider that supports OpenAI API format
+- **Automatic obfuscation**: PII is obfuscated before sending to the AI provider
+- **Automatic restoration**: Original values are restored in the response
+- **Tool call support**: Tool call arguments are also restored
+- **Streaming support**: Server-Sent Events (SSE) for streaming responses
+- **Docker ready**: Dockerfile and docker-compose.yml included
+
+### Quick Start
+
+```bash
+# Run with Docker
+docker run -p 8080:8080 \
+  -e PROMPT_SHIELD_PROXY_PROVIDER_BASE_URL=https://api.openai.com \
+  -e PROMPT_SHIELD_PROXY_PROVIDER_API_KEY=sk-xxx \
+  ploybot/prompt-shield-api-proxy:latest
+
+# Or use docker-compose
+cd prompt-shield-api-proxy
+docker-compose up
+```
+
+### Configuration
+
+```yaml
+prompt-shield:
+  proxy:
+    enabled: true
+    base-path: /v1
+    provider:
+      base-url: https://api.openai.com
+      api-key: ${OPENAI_API_KEY}
+      model: gpt-4o-mini
+    obfuscation:
+      enabled: true
+      inject-system-prompt: true
+      restore-on-response: true
+```
+
+### Usage
+
+```bash
+# Chat completion
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "Mi DNI es 12345678Z y mi email es juan@test.com"}
+    ]
+  }'
+
+# Response (restored)
+{
+  "choices": [{
+    "message": {
+      "role": "assistant",
+      "content": "El DNI 12345678Z es válido. El email juan@test.com está correcto."
+    }
+  }]
+}
+```
+
+### Supported Providers
+
+Any provider that implements the OpenAI API format:
+
+- OpenAI (GPT-4, GPT-3.5, etc.)
+- Azure OpenAI
+- Ollama (with OpenAI compatibility)
+- LM Studio
+- vLLM
+- And many more...
 
 ## Contributing
 
