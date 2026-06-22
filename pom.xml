@@ -54,6 +54,7 @@
         <module>prompt-shield-storage-redis</module>
         <module>prompt-shield-storage-jpa</module>
         <module>prompt-shield-ner-opennlp</module>
+        <module>prompt-shield-api-proxy</module>
         <module>prompt-shield-example</module>
     </modules>
 
@@ -82,6 +83,11 @@
             <dependency>
                 <groupId>com.ploybot</groupId>
                 <artifactId>prompt-shield-ner-opennlp</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.ploybot</groupId>
+                <artifactId>prompt-shield-api-proxy</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

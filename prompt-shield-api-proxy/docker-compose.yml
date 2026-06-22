@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  prompt-shield-proxy:
+    build:
+      context: ..
+      dockerfile: prompt-shield-api-proxy/Dockerfile
+    container_name: prompt-shield-proxy
+    ports:
+      - "${PROXY_PORT:-8080}:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - PROMPT_SHIELD_PROXY_ENABLED=true
+      - PROMPT_SHIELD_PROXY_PROVIDER_BASE_URL=${PROVIDER_BASE_URL:-https://api.openai.com}
+      - PROMPT_SHIELD_PROXY_PROVIDER_API_KEY=${PROVIDER_API_KEY}
+      - PROMPT_SHIELD_PROXY_PROVIDER_MODEL=${PROVIDER_MODEL:-gpt-4o-mini}
+      - PROMPT_SHIELD_PROXY_OBFUSCATION_ENABLED=true
+      - PROMPT_SHIELD_PROXY_OBFUSCATION_INJECT_SYSTEM_PROMPT=true
+      - PROMPT_SHIELD_PROXY_OBFUSCATION_RESTORE_ON_RESPONSE=true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Example: Ollama as local AI provider
+  # Uncomment to use local Ollama instead of OpenAI
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   restart: unless-stopped
+  #
+  # prompt-shield-proxy-ollama:
+  #   build:
+  #     context: ..
+  #     dockerfile: prompt-shield-api-proxy/Dockerfile
+  #   container_name: prompt-shield-proxy-ollama
+  #   ports:
+  #     - "8081:8080"
+  #   environment:
+  #     - PROMPT_SHIELD_PROXY_PROVIDER_BASE_URL=http://ollama:11434
+  #     - PROMPT_SHIELD_PROXY_PROVIDER_MODEL=llama3
+  #     - PROMPT_SHIELD_PROXY_PROVIDER_API_KEY=not-needed
+  #   depends_on:
+  #     - ollama
+  #   restart: unless-stopped
+
+# volumes:
+#   ollama_data:
