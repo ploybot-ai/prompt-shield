@@ -39,7 +39,9 @@ class ProxyServiceTest {
         String open = engine.getConfig().getTagOpen();
         String close = engine.getConfig().getTagClose();
         int start = obfuscated.indexOf(open);
-        int end = obfuscated.indexOf(close) + close.length();
+        int end = obfuscated.indexOf(close, start + open.length());
+        if (end < 0) end = obfuscated.length();
+        else end += close.length();
         return obfuscated.substring(start, end);
     }
 

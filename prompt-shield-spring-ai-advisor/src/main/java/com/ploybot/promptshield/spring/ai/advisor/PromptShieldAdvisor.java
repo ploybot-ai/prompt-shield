@@ -238,11 +238,10 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
                             .toList();
                 }
 
-                var restoredOutput = new AssistantMessage(
-                        restoredText,
-                        java.util.Map.of(),
-                        restoredToolCalls != null ? restoredToolCalls : List.of()
-                );
+                var restoredOutput = AssistantMessage.builder()
+                        .content(restoredText)
+                        .toolCalls(restoredToolCalls != null ? restoredToolCalls : List.of())
+                        .build();
                 var restoredResult = new org.springframework.ai.chat.model.Generation(restoredOutput);
                 var restoredResponse = org.springframework.ai.chat.model.ChatResponse.builder()
                         .generations(List.of(restoredResult))

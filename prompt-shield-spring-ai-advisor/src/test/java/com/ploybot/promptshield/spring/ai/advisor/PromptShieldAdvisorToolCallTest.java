@@ -75,11 +75,10 @@ class PromptShieldAdvisorToolCallTest {
                 obfuscatedArgs
         );
         
-        AssistantMessage assistantMessage = new AssistantMessage(
-                "I'll send an email for you",
-                java.util.Map.of(),
-                List.of(toolCall)
-        );
+        AssistantMessage assistantMessage = AssistantMessage.builder()
+                .content("I'll send an email for you")
+                .toolCalls(List.of(toolCall))
+                .build();
 
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(assistantMessage));
@@ -135,11 +134,10 @@ class PromptShieldAdvisorToolCallTest {
                 obfuscatedArgs
         );
         
-        AssistantMessage assistantMessage = new AssistantMessage(
-                "Sending email with DNI",
-                java.util.Map.of(),
-                List.of(toolCall)
-        );
+        AssistantMessage assistantMessage = AssistantMessage.builder()
+                .content("Sending email with DNI")
+                .toolCalls(List.of(toolCall))
+                .build();
 
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(assistantMessage));
@@ -183,11 +181,10 @@ class PromptShieldAdvisorToolCallTest {
                 cleanArgs
         );
         
-        AssistantMessage assistantMessage = new AssistantMessage(
-                "Sending email",
-                java.util.Map.of(),
-                List.of(toolCall)
-        );
+        AssistantMessage assistantMessage = AssistantMessage.builder()
+                .content("Sending email")
+                .toolCalls(List.of(toolCall))
+                .build();
 
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(assistantMessage));
@@ -234,11 +231,10 @@ class PromptShieldAdvisorToolCallTest {
                 "call_002", "function", "sendEmail", args2
         );
         
-        AssistantMessage assistantMessage = new AssistantMessage(
-                "Sending two emails",
-                java.util.Map.of(),
-                List.of(toolCall1, toolCall2)
-        );
+        AssistantMessage assistantMessage = AssistantMessage.builder()
+                .content("Sending two emails")
+                .toolCalls(List.of(toolCall1, toolCall2))
+                .build();
 
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(assistantMessage));
@@ -294,11 +290,10 @@ class PromptShieldAdvisorToolCallTest {
                 obfuscatedArgs
         );
         
-        AssistantMessage assistantMessage = new AssistantMessage(
-                "Enviando email con DNI",
-                java.util.Map.of(),
-                List.of(toolCall)
-        );
+        AssistantMessage assistantMessage = AssistantMessage.builder()
+                .content("Enviando email con DNI")
+                .toolCalls(List.of(toolCall))
+                .build();
 
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(assistantMessage));

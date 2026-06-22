@@ -17,6 +17,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.prompt.ChatOptions;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,7 +34,10 @@ class PromptShieldAdvisorFullIntegrationTest {
         @Primary
         public ChatModel mockChatModel() {
             ChatModel mockModel = mock(ChatModel.class);
-            
+            ChatOptions defaultOpts = ChatOptions.builder().build();
+            when(mockModel.getOptions()).thenReturn(defaultOpts);
+            when(mockModel.getDefaultOptions()).thenReturn(defaultOpts);
+
             when(mockModel.call(any(Prompt.class))).thenAnswer(invocation -> {
                 Prompt prompt = invocation.getArgument(0);
                 String userText = prompt.getInstructions().get(0).getText();
