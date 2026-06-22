@@ -6,6 +6,14 @@
 - [x] Cambiar el formato por <<REDACTED:EMAIL#81b562>> o ⟦REDACTED:EMAIL:1⟧ o __REDACTED_EMAIL_1__ o @@ , etc ... , revisar distintas alternativas probalas y ver cual funciona mejor
 
 ## Media prioridad
+- [ ] Actualizar a última versión de Spring Boot y Spring AI 2.0.0
+  - **Current**: Spring Boot 3.3.0, Spring AI 1.0.0
+  - **Target**: Spring Boot 3.4.x, Spring AI 2.0.0
+  - **Acciones**:
+    - Verificar compatibilidad de módulos
+    - Actualizar APIs de Spring AI (cambios en ChatClient, Advisors)
+    - Ejecutar tests completos
+  - **Riesgo**: Puede haber breaking changes en Spring AI 2.0.0
 - [ ] Integrar librería de detección de entidades (Named Entity Recognition)
   - **Objetivo**: Detectar automáticamente entidades sensibles (DNI, email, teléfonos, etc.) sin depender de patrones regex
   - **Opciones posibles**:
@@ -27,6 +35,12 @@
 - [x] Soporte para JPA/H2 como StorageService
 
 ## Baja prioridad
+- [ ] Publicar imagen Docker del API Proxy en Docker Hub
+  - **Objetivo**: Facilitar despliegue del proxy OpenAI-compatible
+  - **Acciones**:
+    - Configurar build de Docker Hub en GitHub Actions
+    - Publicar imagen multi-arch (amd64/arm64)
+    - Documentar uso con Docker Compose
 - [ ] Métricas de obfuscación (cuántos datos se obfuscan por request)
 - [ ] Rate limiting por tipo de dato
 - [ ] Soporte para obfuscar en respuestas del AI (no solo prompts)
