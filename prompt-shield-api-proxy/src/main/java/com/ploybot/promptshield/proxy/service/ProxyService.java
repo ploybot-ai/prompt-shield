@@ -74,7 +74,7 @@ public class ProxyService {
         }
 
         for (ChatMessage message : request.messages()) {
-            if (message.content() != null && engine.containsTags(message.content()) == false) {
+            if (message.content() != null && !message.role().equals("system")) {
                 String obfuscatedContent = engine.ofuscar(message.content());
                 obfuscatedMessages.add(new ChatMessage(
                         message.role(),
