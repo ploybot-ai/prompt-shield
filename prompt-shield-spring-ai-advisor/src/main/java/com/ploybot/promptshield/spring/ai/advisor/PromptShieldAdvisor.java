@@ -170,10 +170,37 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
         var chatResponse = response.chatResponse();
         if (chatResponse.getResult() != null && chatResponse.getResult().getOutput() != null) {
-            String text = chatResponse.getResult().getOutput().getText();
-            if (engine.containsTags(text)) {
-                String restoredText = engine.restaurar(text);
-                var restoredOutput = new AssistantMessage(restoredText);
+            AssistantMessage output = chatResponse.getResult().getOutput();
+            String text = output.getText();
+            
+            boolean hasTagsInText = text != null && engine.containsTags(text);
+            boolean hasToolCalls = output.hasToolCalls();
+            
+            if (hasTagsInText || hasToolCalls) {
+                // Restore text content
+                String restoredText = hasTagsInText ? engine.restaurar(text) : text;
+                
+                // Restore tool call arguments
+                List<AssistantMessage.ToolCall> restoredToolCalls = null;
+                if (hasToolCalls) {
+                    restoredToolCalls = output.getToolCalls().stream()
+                            .map(tc -> {
+                                String restoredArgs = engine.restaurar(tc.arguments());
+                                return new AssistantMessage.ToolCall(
+                                        tc.id(),
+                                        tc.type(),
+                                        tc.name(),
+                                        restoredArgs
+                                );
+                            })
+                            .toList();
+                }
+                
+                var restoredOutput = new AssistantMessage(
+                        restoredText,
+                        java.util.Map.of(),
+                        restoredToolCalls != null ? restoredToolCalls : List.of()
+                );
                 var restoredResult = new org.springframework.ai.chat.model.Generation(restoredOutput);
                 var restoredResponse = org.springframework.ai.chat.model.ChatResponse.builder()
                         .generations(List.of(restoredResult))
