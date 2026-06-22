@@ -64,7 +64,7 @@ ObfuscationEngine engine = new ObfuscationEngine();
 
 // Obfuscate text
 String obfuscated = engine.ofuscar("Mi DNI es 12345678Z y mi email es user@email.com");
-// Result: "Mi DNI es [[REDACTED:DNI#1c9f96]] y mi email es [[REDACTED:EMAIL#e5a3b2]]"
+// Result: "Mi DNI es ~REDACTED:DNI#1c9f96~ y mi email es ~REDACTED:EMAIL#e5a3b2~"
 
 // Restore original values
 String restored = engine.restaurar(obfuscated);
@@ -76,7 +76,7 @@ String restored = engine.restaurar(obfuscated);
 ```java
 // Obfuscate only DNI
 String obfuscated = engine.ofuscar("DNI: 12345678Z, Tel: 612345678", "DNI");
-// Result: "DNI: [[REDACTED:DNI#1c9f96]], Tel: 612345678"
+// Result: "DNI: ~REDACTED:DNI#1c9f96~, Tel: 612345678"
 ```
 
 ### JSON Obfuscation
@@ -85,7 +85,7 @@ String obfuscated = engine.ofuscar("DNI: 12345678Z, Tel: 612345678", "DNI");
 // Obfuscate JSON string
 String json = "{\"dni\":\"12345678Z\",\"email\":\"user@email.com\"}";
 String obfuscated = engine.ofuscarObjetoJson(json);
-// Result: "{\"dni\":\"[[REDACTED:DNI#1c9f96]]\",\"email\":\"[[REDACTED:EMAIL#e5a3b2]]\"}"
+// Result: "{\"dni\":\"~REDACTED:DNI#1c9f96~\",\"email\":\"~REDACTED:EMAIL#e5a3b2~\"}"
 
 // Restore JSON
 String restored = engine.restaurarObjetoJson(obfuscated);
@@ -223,7 +223,7 @@ prompt-shield:
 
 ### System Prompt
 
-The advisor automatically injects a system prompt that instructs the AI to preserve the obfuscated placeholders. This ensures the AI doesn't modify, remove, or try to "fix" the `[[REDACTED:TYPE#HASH]]` markers.
+The advisor automatically injects a system prompt that instructs the AI to preserve the obfuscated placeholders. This ensures the AI doesn't modify, remove, or try to "fix" the `~REDACTED:TYPE#HASH~` markers.
 
 ```java
 // Available system prompts
@@ -302,12 +302,12 @@ ObfuscationEngine engine = new ObfuscationEngine(config);
 
 ## Tag Format
 
-Default format: `[[REDACTED:TYPE#HASH]]`
+Default format: `~REDACTED:TYPE#HASH~`
 
 Examples:
-- `[[REDACTED:DNI#1c9f96]]`
-- `[[REDACTED:EMAIL#e5a3b2]]`
-- `[[REDACTED:TELEFONO#d500e1]]`
+- `~REDACTED:DNI#1c9f96~`
+- `~REDACTED:EMAIL#e5a3b2~`
+- `~REDACTED:TELEFONO#d500e1~`
 
 ### Custom Format
 

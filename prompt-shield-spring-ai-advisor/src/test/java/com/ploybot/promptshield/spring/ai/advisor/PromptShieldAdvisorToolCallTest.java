@@ -47,7 +47,9 @@ class PromptShieldAdvisorToolCallTest {
         String tagOpen = engine.getConfig().getTagOpen();
         String tagClose = engine.getConfig().getTagClose();
         int start = obfuscated.indexOf(tagOpen);
-        int end = obfuscated.indexOf(tagClose) + tagClose.length();
+        int end = obfuscated.indexOf(tagClose, start + tagOpen.length());
+        if (end < 0) end = obfuscated.length();
+        else end += tagClose.length();
         return obfuscated.substring(start, end);
     }
 

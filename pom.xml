@@ -13,7 +13,7 @@
 
                 <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0-beta.2</version>
     <packaging>pom</packaging>
 
     <name>Prompt Shield - Parent</name>
@@ -45,6 +45,7 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <testcontainers.version>2.0.5</testcontainers.version>
     </properties>
 
     <modules>
@@ -89,6 +90,13 @@
                 <groupId>com.ploybot</groupId>
                 <artifactId>prompt-shield-api-proxy</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

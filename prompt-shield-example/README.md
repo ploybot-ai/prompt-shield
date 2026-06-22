@@ -74,7 +74,7 @@ curl -X POST http://localhost:8080/api/ai/chat \
 ## What happens behind the scenes
 
 1. **Input**: `"Mi nombre es Juan y mi DNI es 12345678A. Mi email es juan@example.com"`
-2. **After obfuscation** (sent to AI): `"Mi nombre es Juan y mi DNI es [[REDACTED:DNI#a1b2c3]]. Mi email es [[REDACTED:EMAIL#d4e5f6]]"`
-3. **System prompt injected**: Tells AI to preserve `[[REDACTED:TYPE#HASH]]` placeholders
-4. **AI response**: `"El DNI [[REDACTED:DNI#a1b2c3]] pertenece a Juan. El email [[REDACTED:EMAIL#d4e5f6]] es válido."`
+2. **After obfuscation** (sent to AI): `"Mi nombre es Juan y mi DNI es ~REDACTED:DNI#a1b2c3~. Mi email es ~REDACTED:EMAIL#d4e5f6~"`
+3. **System prompt injected**: Tells AI to preserve `~REDACTED:TYPE#HASH~` placeholders
+4. **AI response**: `"El DNI ~REDACTED:DNI#a1b2c3~ pertenece a Juan. El email ~REDACTED:EMAIL#d4e5f6~ es válido."`
 5. **After restoration** (returned to user): `"El DNI 12345678A pertenece a Juan. El email juan@example.com es válido."`
