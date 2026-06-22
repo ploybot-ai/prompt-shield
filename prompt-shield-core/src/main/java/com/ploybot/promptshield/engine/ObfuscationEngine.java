@@ -51,9 +51,9 @@ public class ObfuscationEngine {
     }
 
     private Pattern buildTagPattern() {
-        String prefix = Pattern.quote("{{" + config.getRedactedPrefix() + ":");
+        String prefix = Pattern.quote(config.getTagOpen() + config.getRedactedPrefix() + ":");
         String separator = Pattern.quote(config.getTagSeparator());
-        String suffix = Pattern.quote("}}");
+        String suffix = Pattern.quote(config.getTagClose());
         return Pattern.compile(prefix + "([A-Z_]+)" + separator + "([a-f0-9]{" + config.getHashLength() + "})" + suffix);
     }
 
@@ -114,7 +114,7 @@ public class ObfuscationEngine {
     }
 
     private String formatTag(String typeName, String hash) {
-        return "{{" + config.getRedactedPrefix() + ":" + typeName + config.getTagSeparator() + hash + "}}";
+        return config.getTagOpen() + config.getRedactedPrefix() + ":" + typeName + config.getTagSeparator() + hash + config.getTagClose();
     }
 
     public String restaurar(String text) {
@@ -192,8 +192,10 @@ public class ObfuscationEngine {
     public String generateSystemPrompt(String language) {
         String prefix = config.getRedactedPrefix();
         String separator = config.getTagSeparator();
-        String tagFormat = "{{" + prefix + ":TYPE" + separator + "HASH}}";
-        String exampleEmailTag = "{{" + prefix + ":EMAIL" + separator + "e5a3b2}}";
+        String tagOpen = config.getTagOpen();
+        String tagClose = config.getTagClose();
+        String tagFormat = tagOpen + prefix + ":TYPE" + separator + "HASH" + tagClose;
+        String exampleEmailTag = tagOpen + prefix + ":EMAIL" + separator + "e5a3b2" + tagClose;
 
         String template;
         if ("es".equalsIgnoreCase(language)) {
