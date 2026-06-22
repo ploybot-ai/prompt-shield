@@ -20,6 +20,7 @@ public class AiController {
     public AiResponse chat(@RequestBody AiRequest request) {
         String response = chatClient.prompt()
                 .user(request.message())
+                .tools(new EmailTools())
                 .call()
                 .content();
         return new AiResponse(response);
