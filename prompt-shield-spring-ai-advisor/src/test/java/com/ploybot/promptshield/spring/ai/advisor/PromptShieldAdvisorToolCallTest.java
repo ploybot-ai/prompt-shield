@@ -44,9 +44,10 @@ class PromptShieldAdvisorToolCallTest {
 
     private String obfuscateAndGetTag(String originalValue) {
         String obfuscated = engine.ofuscar(originalValue);
-        // Extract the tag from obfuscated text like "email is {{REDACTED:EMAIL#abc123}}"
-        int start = obfuscated.indexOf("{{");
-        int end = obfuscated.indexOf("}}") + 2;
+        String tagOpen = engine.getConfig().getTagOpen();
+        String tagClose = engine.getConfig().getTagClose();
+        int start = obfuscated.indexOf(tagOpen);
+        int end = obfuscated.indexOf(tagClose) + tagClose.length();
         return obfuscated.substring(start, end);
     }
 
@@ -105,7 +106,7 @@ class PromptShieldAdvisorToolCallTest {
         // The email should be restored to the original value
         assertTrue(restoredArgs.contains("juan@example.com"),
                 "Tool call arguments should contain restored email, but got: " + restoredArgs);
-        assertFalse(restoredArgs.contains("{{REDACTED:EMAIL#"),
+        assertFalse(engine.containsTags(restoredArgs),
                 "Tool call arguments should not contain obfuscated tags, but got: " + restoredArgs);
     }
 
@@ -157,7 +158,7 @@ class PromptShieldAdvisorToolCallTest {
                 "Tool call should contain restored email, but got: " + restoredArgs);
         assertTrue(restoredArgs.contains("12345678Z"),
                 "Tool call should contain restored DNI, but got: " + restoredArgs);
-        assertFalse(restoredArgs.contains("{{REDACTED:"),
+        assertFalse(restoredArgs.contains(engine.getConfig().getTagOpen() + "REDACTED:"),
                 "Tool call should not contain any obfuscated tags, but got: " + restoredArgs);
     }
 
@@ -255,7 +256,7 @@ class PromptShieldAdvisorToolCallTest {
         
         // Both should have restored values
         for (AssistantMessage.ToolCall tc : toolCalls) {
-            assertFalse(tc.arguments().contains("{{REDACTED:"),
+            assertFalse(tc.arguments().contains(engine.getConfig().getTagOpen() + "REDACTED:"),
                     "Each tool call should have restored arguments, but got: " + tc.arguments());
         }
         
@@ -316,7 +317,7 @@ class PromptShieldAdvisorToolCallTest {
                 "Tool call should contain restored email");
         assertTrue(restoredArgs.contains("12345678Z"),
                 "Tool call should contain restored DNI");
-        assertFalse(restoredArgs.contains("{{REDACTED:"),
+        assertFalse(restoredArgs.contains(engine.getConfig().getTagOpen() + "REDACTED:"),
                 "Tool call should not contain obfuscated tags");
     }
 }

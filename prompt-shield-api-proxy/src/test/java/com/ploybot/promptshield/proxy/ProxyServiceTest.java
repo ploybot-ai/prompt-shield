@@ -35,6 +35,14 @@ class ProxyServiceTest {
         proxyService = new ProxyService(aiClient, engine, true, true);
     }
 
+    private String extractTag(String obfuscated) {
+        String open = engine.getConfig().getTagOpen();
+        String close = engine.getConfig().getTagClose();
+        int start = obfuscated.indexOf(open);
+        int end = obfuscated.indexOf(close) + close.length();
+        return obfuscated.substring(start, end);
+    }
+
     @Test
     void testObfuscateRequest() {
         // Arrange
@@ -44,22 +52,20 @@ class ProxyServiceTest {
                 List.of(ChatMessage.user(userMessage))
         );
 
-        // Mock AI client to capture the request
+        String tagOpen = engine.getConfig().getTagOpen();
+        String tagSep = engine.getConfig().getTagSeparator();
+
         when(aiClient.chatCompletion(any())).thenAnswer(invocation -> {
             ChatCompletionRequest captured = invocation.getArgument(0);
             
-            // Verify the request was obfuscated
             assertNotNull(captured.messages());
-            // First message should be system prompt
             assertTrue(captured.messages().get(0).role().equals("system"));
-            // Second message should be obfuscated user message
             String obfuscatedContent = captured.messages().get(1).content();
-            assertTrue(obfuscatedContent.contains("{{REDACTED:EMAIL#"));
-            assertTrue(obfuscatedContent.contains("{{REDACTED:DNI#"));
+            assertTrue(obfuscatedContent.contains(tagOpen + "REDACTED:EMAIL" + tagSep));
+            assertTrue(obfuscatedContent.contains(tagOpen + "REDACTED:DNI" + tagSep));
             assertFalse(obfuscatedContent.contains("juan@example.com"));
             assertFalse(obfuscatedContent.contains("12345678Z"));
             
-            // Return a response
             return new ChatCompletionResponse(
                     "chatcmpl-123",
                     "chat.completion",
@@ -67,35 +73,27 @@ class ProxyServiceTest {
                     "gpt-4o-mini",
                     List.of(new ChatCompletionResponse.Choice(
                             0,
-                            ChatMessage.assistant("Email sent to {{REDACTED:EMAIL#abc123}}"),
+                            ChatMessage.assistant("Email sent to " + extractTag(engine.ofuscar("juan@example.com"))),
                             "stop"
                     )),
                     new ChatCompletionResponse.Usage(10, 20, 30)
             );
         });
 
-        // Act
         ChatCompletionResponse response = proxyService.chatCompletion(request);
 
-        // Assert
         assertNotNull(response);
         verify(aiClient, times(1)).chatCompletion(any());
     }
 
     @Test
     void testRestoreResponse() {
-        // Arrange
         ChatCompletionRequest request = new ChatCompletionRequest(
                 "gpt-4o-mini",
                 List.of(ChatMessage.user("Test"))
         );
 
-        // First, obfuscate an email to store the tag
-        String obfuscatedEmail = engine.ofuscar("juan@example.com");
-        String emailTag = obfuscatedEmail.substring(
-                obfuscatedEmail.indexOf("{{"),
-                obfuscatedEmail.indexOf("}}") + 2
-        );
+        String emailTag = extractTag(engine.ofuscar("juan@example.com"));
 
         when(aiClient.chatCompletion(any())).thenReturn(new ChatCompletionResponse(
                 "chatcmpl-123",
@@ -110,34 +108,25 @@ class ProxyServiceTest {
                 new ChatCompletionResponse.Usage(10, 20, 30)
         ));
 
-        // Act
         ChatCompletionResponse response = proxyService.chatCompletion(request);
 
-        // Assert - Response should be restored
         assertNotNull(response);
         String content = response.choices().get(0).message().content();
         assertTrue(content.contains("juan@example.com"),
                 "Response should contain restored email, but got: " + content);
-        assertFalse(content.contains("{{REDACTED:"),
+        assertFalse(engine.containsTags(content),
                 "Response should not contain obfuscated tags, but got: " + content);
     }
 
     @Test
     void testToolCallArgumentsRestored() {
-        // Arrange
         ChatCompletionRequest request = new ChatCompletionRequest(
                 "gpt-4o-mini",
                 List.of(ChatMessage.user("Send email"))
         );
 
-        // Obfuscate an email to store the tag
-        String obfuscatedEmail = engine.ofuscar("user@test.com");
-        String emailTag = obfuscatedEmail.substring(
-                obfuscatedEmail.indexOf("{{"),
-                obfuscatedEmail.indexOf("}}") + 2
-        );
+        String emailTag = extractTag(engine.ofuscar("user@test.com"));
 
-        // AI returns a tool call with obfuscated arguments
         String toolArgs = "{\"to\":\"" + emailTag + "\",\"subject\":\"Hello\"}";
         com.ploybot.promptshield.proxy.model.ToolCall toolCall = new com.ploybot.promptshield.proxy.model.ToolCall(
                 "call_123",
@@ -159,10 +148,8 @@ class ProxyServiceTest {
                 new ChatCompletionResponse.Usage(10, 20, 30)
         ));
 
-        // Act
         ChatCompletionResponse response = proxyService.chatCompletion(request);
 
-        // Assert - Tool call arguments should be restored
         assertNotNull(response);
         var outputMessage = response.choices().get(0).message();
         assertTrue(outputMessage.hasToolCalls());
@@ -170,14 +157,12 @@ class ProxyServiceTest {
         String restoredArgs = outputMessage.toolCalls().get(0).arguments();
         assertTrue(restoredArgs.contains("user@test.com"),
                 "Tool call arguments should contain restored email, but got: " + restoredArgs);
-        assertFalse(restoredArgs.contains("{{REDACTED:"),
+        assertFalse(engine.containsTags(restoredArgs),
                 "Tool call arguments should not contain obfuscated tags, but got: " + restoredArgs);
     }
 
     @Test
     void testNoObfuscationWhenDisabled() {
-        // Arrange - When injectSystemPrompt=false, system prompt is not injected
-        // but messages are still obfuscated (for security)
         ProxyService noObfuscationService = new ProxyService(aiClient, engine, false, true);
         
         String userMessage = "Send email to juan@example.com";
@@ -186,13 +171,14 @@ class ProxyServiceTest {
                 List.of(ChatMessage.user(userMessage))
         );
 
+        String tagOpen = engine.getConfig().getTagOpen();
+        String tagSep = engine.getConfig().getTagSeparator();
+
         when(aiClient.chatCompletion(any())).thenAnswer(invocation -> {
             ChatCompletionRequest captured = invocation.getArgument(0);
             
-            // Verify NO system prompt was injected (only 1 message)
             assertEquals(1, captured.messages().size());
-            // Message is still obfuscated for security
-            assertTrue(captured.messages().get(0).content().contains("{{REDACTED:EMAIL#"));
+            assertTrue(captured.messages().get(0).content().contains(tagOpen + "REDACTED:EMAIL" + tagSep));
             
             return new ChatCompletionResponse(
                     "chatcmpl-123",
@@ -208,16 +194,13 @@ class ProxyServiceTest {
             );
         });
 
-        // Act
         ChatCompletionResponse response = noObfuscationService.chatCompletion(request);
 
-        // Assert
         verify(aiClient, times(1)).chatCompletion(any());
     }
 
     @Test
     void testNoRestoreWhenDisabled() {
-        // Arrange
         ProxyService noRestoreService = new ProxyService(aiClient, engine, true, false);
         
         ChatCompletionRequest request = new ChatCompletionRequest(
@@ -225,12 +208,7 @@ class ProxyServiceTest {
                 List.of(ChatMessage.user("Test"))
         );
 
-        // Obfuscate an email to store the tag
-        String obfuscatedEmail = engine.ofuscar("juan@example.com");
-        String emailTag = obfuscatedEmail.substring(
-                obfuscatedEmail.indexOf("{{"),
-                obfuscatedEmail.indexOf("}}") + 2
-        );
+        String emailTag = extractTag(engine.ofuscar("juan@example.com"));
 
         when(aiClient.chatCompletion(any())).thenReturn(new ChatCompletionResponse(
                 "chatcmpl-123",
@@ -245,19 +223,16 @@ class ProxyServiceTest {
                 new ChatCompletionResponse.Usage(10, 20, 30)
         ));
 
-        // Act
         ChatCompletionResponse response = noRestoreService.chatCompletion(request);
 
-        // Assert - Response should NOT be restored
         assertNotNull(response);
         String content = response.choices().get(0).message().content();
-        assertTrue(content.contains("{{REDACTED:"),
+        assertTrue(engine.containsTags(content),
                 "Response should contain obfuscated tags when restore is disabled");
     }
 
     @Test
     void testMultipleMessagesObfuscated() {
-        // Arrange
         ChatCompletionRequest request = new ChatCompletionRequest(
                 "gpt-4o-mini",
                 List.of(
@@ -268,13 +243,15 @@ class ProxyServiceTest {
                 )
         );
 
+        String tagOpen = engine.getConfig().getTagOpen();
+        String tagSep = engine.getConfig().getTagSeparator();
+
         when(aiClient.chatCompletion(any())).thenAnswer(invocation -> {
             ChatCompletionRequest captured = invocation.getArgument(0);
             
-            // Verify user messages are obfuscated (system message is already present, so no new one injected)
-            assertEquals(4, captured.messages().size()); // existing system + 3 messages
-            assertTrue(captured.messages().get(1).content().contains("{{REDACTED:DNI#"));
-            assertTrue(captured.messages().get(3).content().contains("{{REDACTED:EMAIL#"));
+            assertEquals(4, captured.messages().size());
+            assertTrue(captured.messages().get(1).content().contains(tagOpen + "REDACTED:DNI" + tagSep));
+            assertTrue(captured.messages().get(3).content().contains(tagOpen + "REDACTED:EMAIL" + tagSep));
             
             return new ChatCompletionResponse(
                     "chatcmpl-123",
@@ -290,10 +267,8 @@ class ProxyServiceTest {
             );
         });
 
-        // Act
         ChatCompletionResponse response = proxyService.chatCompletion(request);
 
-        // Assert
         verify(aiClient, times(1)).chatCompletion(any());
     }
 }

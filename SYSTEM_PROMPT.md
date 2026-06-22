@@ -3,7 +3,7 @@
 ## English Version
 
 ```
-IMPORTANT: This conversation may contain obfuscated sensitive data markers in the format {{REDACTED:TYPE#HASH}}. These are NOT errors or artifacts - they are intentional security placeholders protecting Personally Identifiable Information (PII).
+IMPORTANT: This conversation may contain obfuscated sensitive data markers in the format [[REDACTED:TYPE#HASH]]. These are NOT errors or artifacts - they are intentional security placeholders protecting Personally Identifiable Information (PII).
 
 RULES:
 1. NEVER modify, reformat, remove, or attempt to "fix" these placeholders
@@ -14,10 +14,10 @@ RULES:
 6. Do NOT try to decode, guess, or reconstruct the original values
 
 Examples of valid placeholders:
-- {{REDACTED:DNI#a1b2c3}} (Spanish ID number)
-- {{REDACTED:EMAIL#d4e5f6}} (Email address)
-- {{REDACTED:TELEFONO#g7h8i9}} (Phone number)
-- {{REDACTED:NIE#j0k1l2}} (Foreign ID number)
+- [[REDACTED:DNI#a1b2c3]] (Spanish ID number)
+- [[REDACTED:EMAIL#d4e5f6]] (Email address)
+- [[REDACTED:TELEFONO#g7h8i9]] (Phone number)
+- [[REDACTED:NIE#j0k1l2]] (Foreign ID number)
 
 Your task is to process the REQUEST, not the placeholders. The system will handle restoration of original values.
 ```
@@ -25,7 +25,7 @@ Your task is to process the REQUEST, not the placeholders. The system will handl
 ## Spanish Version
 
 ```
-IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato {{REDACTED:TYPE#HASH}}. NO son errores ni artefactos - son marcadores de seguridad intencionales que protegen Información Personal Identificable (PII).
+IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato [[REDACTED:TYPE#HASH]]. NO son errores ni artefactos - son marcadores de seguridad intencionales que protegen Información Personal Identificable (PII).
 
 REGLAS:
 1. NUNCA modifiques, reformatees, elimines o intentes "corregir" estos marcadores
@@ -36,10 +36,10 @@ REGLAS:
 6. NO intentes decodificar, adivinar o reconstruir los valores originales
 
 Ejemplos de marcadores válidos:
-- {{REDACTED:DNI#a1b2c3}} (Documento Nacional de Identidad)
-- {{REDACTED:EMAIL#d4e5f6}} (Correo electrónico)
-- {{REDACTED:TELEFONO#g7h8i9}} (Número de teléfono)
-- {{REDACTED:NIE#j0k1l2}} (Número de Identidad de Extranjero)
+- [[REDACTED:DNI#a1b2c3]] (Documento Nacional de Identidad)
+- [[REDACTED:EMAIL#d4e5f6]] (Correo electrónico)
+- [[REDACTED:TELEFONO#g7h8i9]] (Número de teléfono)
+- [[REDACTED:NIE#j0k1l2]] (Número de Identidad de Extranjero)
 
 Tu tarea es procesar la SOLICITUD, no los marcadores. El sistema se encargará de restaurar los valores originales.
 ```
@@ -65,11 +65,11 @@ ChatClient chatClient = ChatClient.builder(chatModel)
   "messages": [
     {
       "role": "system",
-      "content": "IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato {{REDACTED:TYPE#HASH}}. NO son errores ni artefactos..."
+      "content": "IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato [[REDACTED:TYPE#HASH]]. NO son errores ni artefactos..."
     },
     {
       "role": "user",
-      "content": "Mi DNI es {{REDACTED:DNI#a1b2c3}} y mi email es {{REDACTED:EMAIL#d4e5f6}}"
+      "content": "Mi DNI es [[REDACTED:DNI#a1b2c3]] y mi email es [[REDACTED:EMAIL#d4e5f6]]"
     }
   ]
 }
@@ -79,11 +79,11 @@ ChatClient chatClient = ChatClient.builder(chatModel)
 
 ```json
 {
-  "system": "IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato {{REDACTED:TYPE#HASH}}...",
+  "system": "IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato [[REDACTED:TYPE#HASH]]...",
   "messages": [
     {
       "role": "user",
-      "content": "Mi DNI es {{REDACTED:DNI#a1b2c3}}"
+      "content": "Mi DNI es [[REDACTED:DNI#a1b2c3]]"
     }
   ]
 }

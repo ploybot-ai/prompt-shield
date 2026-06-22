@@ -109,8 +109,10 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     public static String generateSystemPrompt(ObfuscationConfig config, String language) {
         String prefix = config.getRedactedPrefix();
         String separator = config.getTagSeparator();
-        String tagFormat = "{{" + prefix + ":TYPE" + separator + "HASH}}";
-        String exampleEmailTag = "{{" + prefix + ":EMAIL" + separator + "e5a3b2}}";
+        String tagOpen = config.getTagOpen();
+        String tagClose = config.getTagClose();
+        String tagFormat = tagOpen + prefix + ":TYPE" + separator + "HASH" + tagClose;
+        String exampleEmailTag = tagOpen + prefix + ":EMAIL" + separator + "e5a3b2" + tagClose;
 
         if ("es".equalsIgnoreCase(language)) {
             return String.format(SYSTEM_PROMPT_ES_TEMPLATE, tagFormat, exampleEmailTag, exampleEmailTag);

@@ -26,7 +26,7 @@ class ObfuscationEngineTest {
     void ofuscarDNI() {
         String result = engine.ofuscar("Mi DNI es 12345678Z");
         assertNotNull(result);
-        assertTrue(result.contains("{{REDACTED:DNI#"));
+        assertTrue(engine.containsTags(result));
         assertFalse(result.contains("12345678Z"));
     }
 
@@ -34,21 +34,21 @@ class ObfuscationEngineTest {
     void ofuscarNIE() {
         String result = engine.ofuscar("Mi NIE es X1234567A");
         assertNotNull(result);
-        assertTrue(result.contains("{{REDACTED:NIE#"));
+        assertTrue(engine.containsTags(result));
     }
 
     @Test
     void ofuscarEmail() {
         String result = engine.ofuscar("Mi email es user@email.com");
         assertNotNull(result);
-        assertTrue(result.contains("{{REDACTED:EMAIL#"));
+        assertTrue(engine.containsTags(result));
     }
 
     @Test
     void ofuscarTelefono() {
         String result = engine.ofuscar("Mi teléfono es 612345678");
         assertNotNull(result);
-        assertTrue(result.contains("{{REDACTED:TELEFONO#"));
+        assertTrue(engine.containsTags(result));
     }
 
     @Test
@@ -99,15 +99,19 @@ class ObfuscationEngineTest {
     @Test
     void ofuscarTipoEspecifico() {
         String result = engine.ofuscar("DNI: 12345678Z, Tel: 612345678", "DNI");
-        assertTrue(result.contains("{{REDACTED:DNI#"));
-        assertFalse(result.contains("{{REDACTED:TELEFONO#"));
+        assertTrue(engine.containsTags(result));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertEquals(1, tags.size());
+        assertEquals("DNI", tags.get(0).getType());
     }
 
     @Test
     void ofuscarMultiplesTipos() {
         String result = engine.ofuscar("DNI: 12345678Z, Email: test@example.com");
-        assertTrue(result.contains("{{REDACTED:DNI#"));
-        assertTrue(result.contains("{{REDACTED:EMAIL#"));
+        assertTrue(engine.containsTags(result));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("DNI")));
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("EMAIL")));
     }
 
     @Test
@@ -132,9 +136,7 @@ class ObfuscationEngineTest {
         String ofuscado = engine.ofuscarObjeto(persona);
 
         assertNotNull(ofuscado);
-        assertTrue(ofuscado.contains("{{REDACTED:DNI#"));
-        assertTrue(ofuscado.contains("{{REDACTED:TELEFONO#"));
-        assertTrue(ofuscado.contains("{{REDACTED:EMAIL#"));
+        assertTrue(engine.containsTags(ofuscado));
         assertFalse(ofuscado.contains("12345678Z"));
         assertFalse(ofuscado.contains("612345678"));
         assertFalse(ofuscado.contains("juan@email.com"));
@@ -159,8 +161,7 @@ class ObfuscationEngineTest {
         String ofuscado = engine.ofuscarObjetoJson(json);
 
         assertNotNull(ofuscado);
-        assertTrue(ofuscado.contains("{{REDACTED:DNI#"));
-        assertTrue(ofuscado.contains("{{REDACTED:EMAIL#"));
+        assertTrue(engine.containsTags(ofuscado));
         assertFalse(ofuscado.contains("12345678Z"));
         assertFalse(ofuscado.contains("juan@email.com"));
     }
@@ -182,7 +183,7 @@ class ObfuscationEngineTest {
         String ofuscado = engine.ofuscarObjetoJson(json);
 
         assertNotNull(ofuscado);
-        assertTrue(ofuscado.contains("{{REDACTED:DNI#"));
+        assertTrue(engine.containsTags(ofuscado));
         assertFalse(ofuscado.contains("12345678Z"));
         assertFalse(ofuscado.contains("87654321A"));
     }
@@ -205,8 +206,9 @@ class ObfuscationEngineTest {
         ObfuscationEngine customEngine = new ObfuscationEngine(config, new InMemoryStorageService());
 
         String result = customEngine.ofuscar("DNI: 12345678Z");
-        assertTrue(result.contains("{{OBFUSCADO:DNI#"));
-        assertFalse(result.contains("{{REDACTED:DNI#"));
+        assertTrue(customEngine.containsTags(result));
+        List<ObfuscationTag> tags = customEngine.extractTags(result);
+        assertFalse(tags.isEmpty());
     }
 
     @Test
@@ -216,8 +218,9 @@ class ObfuscationEngineTest {
         ObfuscationEngine customEngine = new ObfuscationEngine(config, new InMemoryStorageService());
 
         String result = customEngine.ofuscar("DNI: 12345678Z");
-        assertTrue(result.contains("{{REDACTED:DNI_"));
-        assertFalse(result.contains("{{REDACTED:DNI#"));
+        assertTrue(customEngine.containsTags(result));
+        String restored = customEngine.restaurar(result);
+        assertEquals("DNI: 12345678Z", restored);
     }
 
     @Test
@@ -228,7 +231,9 @@ class ObfuscationEngineTest {
         ObfuscationEngine customEngine = new ObfuscationEngine(config, new InMemoryStorageService());
 
         String result = customEngine.ofuscar("DNI: 12345678Z");
-        assertTrue(result.contains("{{OCULTO:DNI_"));
+        assertTrue(customEngine.containsTags(result));
+        String restored = customEngine.restaurar(result);
+        assertEquals("DNI: 12345678Z", restored);
     }
 
     public static class Persona {

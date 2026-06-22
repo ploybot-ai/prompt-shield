@@ -86,12 +86,12 @@ class PromptShieldAdvisorTest {
             assertTrue(messages.size() >= 2);
             assertTrue(messages.get(0) instanceof SystemMessage);
             String systemText = ((SystemMessage) messages.get(0)).getText();
-            assertTrue(systemText.contains("{{REDACTED:TYPE#HASH}}"));
+            assertTrue(systemText.contains(engine.getConfig().getTagOpen() + "REDACTED:TYPE" + engine.getConfig().getTagSeparator() + "HASH" + engine.getConfig().getTagClose()));
             
             // Verify user message was obfuscated
             assertTrue(messages.get(1) instanceof UserMessage);
             String userText = ((UserMessage) messages.get(1)).getText();
-            assertTrue(userText.contains("{{REDACTED:DNI#"));
+            assertTrue(userText.contains(engine.getConfig().getTagOpen() + "REDACTED:DNI" + engine.getConfig().getTagSeparator()));
             
             return chainResponse;
         });
@@ -200,7 +200,7 @@ class PromptShieldAdvisorTest {
             List<Message> messages = req.prompt().getInstructions();
             // User message is at index 1 (after system prompt)
             String text = ((UserMessage) messages.get(1)).getText();
-            assertTrue(text.contains("{{REDACTED:DNI#"));
+            assertTrue(text.contains(engine.getConfig().getTagOpen() + "REDACTED:DNI" + engine.getConfig().getTagSeparator()));
             return chainResponse;
         });
 
@@ -231,8 +231,8 @@ class PromptShieldAdvisorTest {
             ChatClientRequest req = invocation.getArgument(0);
             List<Message> messages = req.prompt().getInstructions();
             String text = ((UserMessage) messages.get(1)).getText();
-            assertTrue(text.contains("{{REDACTED:DNI#"));
-            assertTrue(text.contains("{{REDACTED:EMAIL#"));
+            assertTrue(text.contains(engine.getConfig().getTagOpen() + "REDACTED:DNI" + engine.getConfig().getTagSeparator()));
+            assertTrue(text.contains(engine.getConfig().getTagOpen() + "REDACTED:EMAIL" + engine.getConfig().getTagSeparator()));
             return chainResponse;
         });
 
@@ -281,7 +281,7 @@ class PromptShieldAdvisorTest {
                 .prompt(prompt)
                 .build();
 
-        String responseText = "Tu DNI es {{REDACTED:DNI#1c9f96}}";
+        String responseText = "Tu DNI es " + engine.getConfig().getTagOpen() + "REDACTED:DNI" + engine.getConfig().getTagSeparator() + "1c9f96" + engine.getConfig().getTagClose();
         ChatResponse chatResponse = mock(ChatResponse.class);
         when(chatResponse.getResult()).thenReturn(new Generation(new AssistantMessage(responseText)));
         ChatClientResponse chainResponse = ChatClientResponse.builder()
@@ -299,7 +299,7 @@ class PromptShieldAdvisorTest {
         assertNotNull(result.chatResponse());
         assertNotNull(result.chatResponse().getResult());
         assertNotNull(result.chatResponse().getResult().getOutput());
-        assertTrue(result.chatResponse().getResult().getOutput().getText().contains("{{REDACTED:DNI#"));
+        assertTrue(result.chatResponse().getResult().getOutput().getText().contains(engine.getConfig().getTagOpen() + "REDACTED:DNI"));
     }
 
     @Test
@@ -323,7 +323,7 @@ class PromptShieldAdvisorTest {
             List<Message> messages = req.prompt().getInstructions();
             // Assistant message is at index 1 (after system prompt)
             String text = ((AssistantMessage) messages.get(1)).getText();
-            assertTrue(text.contains("{{REDACTED:DNI#"));
+            assertTrue(text.contains(engine.getConfig().getTagOpen() + "REDACTED:DNI" + engine.getConfig().getTagSeparator()));
             return chainResponse;
         });
 
@@ -360,7 +360,7 @@ class PromptShieldAdvisorTest {
             ChatClientRequest req = invocation.getArgument(0);
             List<Message> messages = req.prompt().getInstructions();
             String text = ((UserMessage) messages.get(1)).getText();
-            assertTrue(text.contains("{{OCULTO:DNI#"));
+            assertTrue(text.contains(customEngine.getConfig().getTagOpen() + "OCULTO:DNI" + customEngine.getConfig().getTagSeparator()));
             return chainResponse;
         });
 

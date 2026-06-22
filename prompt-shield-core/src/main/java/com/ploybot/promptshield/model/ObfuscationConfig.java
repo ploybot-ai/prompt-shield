@@ -11,8 +11,8 @@ public class ObfuscationConfig {
     private boolean enabled = true;
     private String redactedPrefix = "REDACTED";
     private String tagSeparator = "#";
-    private String tagOpen = "{{";
-    private String tagClose = "}}";
+    private String tagOpen = "[[";
+    private String tagClose = "]]";
     private final Map<String, CustomTypeConfig> customTypes = new HashMap<>();
 
     public String getHashAlgorithm() {
