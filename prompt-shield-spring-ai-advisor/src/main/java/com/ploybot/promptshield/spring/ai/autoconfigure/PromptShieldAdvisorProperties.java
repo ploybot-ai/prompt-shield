@@ -15,7 +15,7 @@ public class PromptShieldAdvisorProperties {
     private int order = 0;
     private boolean restoreOnResponse = true;
     private boolean injectSystemPrompt = true;
-    private String systemPrompt = PromptShieldAdvisor.SYSTEM_PROMPT_EN;
+    private String systemPrompt;
     private final Map<String, CustomTypeProperties> customTypes = new HashMap<>();
 
     public boolean isEnabled() {

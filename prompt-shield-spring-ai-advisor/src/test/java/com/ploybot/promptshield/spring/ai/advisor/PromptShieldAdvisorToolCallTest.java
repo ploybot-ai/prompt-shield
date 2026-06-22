@@ -39,7 +39,7 @@ class PromptShieldAdvisorToolCallTest {
     void setUp() {
         storageService = new InMemoryStorageService();
         engine = new ObfuscationEngine(new ObfuscationConfig(), storageService);
-        advisor = new PromptShieldAdvisor(engine, 0, true, true, PromptShieldAdvisor.SYSTEM_PROMPT_EN);
+        advisor = new PromptShieldAdvisor(engine, 0, true, true);
     }
 
     private String obfuscateAndGetTag(String originalValue) {

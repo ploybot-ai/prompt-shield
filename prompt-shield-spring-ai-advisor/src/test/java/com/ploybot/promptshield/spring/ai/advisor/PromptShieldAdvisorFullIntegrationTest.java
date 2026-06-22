@@ -56,7 +56,7 @@ class PromptShieldAdvisorFullIntegrationTest {
         public PromptShieldAdvisor promptShieldAdvisor() {
             StorageService storageService = new InMemoryStorageService();
             ObfuscationEngine engine = new ObfuscationEngine(new com.ploybot.promptshield.model.ObfuscationConfig(), storageService);
-            return new PromptShieldAdvisor(engine, 0, true, true, PromptShieldAdvisor.SYSTEM_PROMPT_EN);
+            return new PromptShieldAdvisor(engine, 0, true, true);
         }
     }
 

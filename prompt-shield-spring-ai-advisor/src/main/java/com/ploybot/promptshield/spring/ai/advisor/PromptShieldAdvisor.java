@@ -1,6 +1,7 @@
 package com.ploybot.promptshield.spring.ai.advisor;
 
 import com.ploybot.promptshield.engine.ObfuscationEngine;
+import com.ploybot.promptshield.model.ObfuscationConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClientRequest;
@@ -25,8 +26,8 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
     public static final String OBFUSCATION_ENGINE_KEY = "prompt-shield-engine";
 
-    public static final String SYSTEM_PROMPT_EN = """
-            IMPORTANT: This conversation may contain obfuscated sensitive data markers in the format {{REDACTED:TYPE#HASH}}. These are NOT errors or artifacts - they are intentional security placeholders protecting Personally Identifiable Information (PII).
+    private static final String SYSTEM_PROMPT_EN_TEMPLATE = """
+            IMPORTANT: This conversation may contain obfuscated sensitive data markers in the format %s. These are NOT errors or artifacts - they are intentional security placeholders protecting Personally Identifiable Information (PII).
             
             RULES:
             1. NEVER modify, reformat, remove, or attempt to "fix" these placeholders
@@ -36,11 +37,20 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
             5. If you need to repeat the data in your response, use the EXACT placeholder as-is
             6. Do NOT try to decode, guess, or reconstruct the original values
             
+            TOOL CALLS:
+            When you invoke tools, use the placeholders exactly as they appear in the conversation.
+            The system will automatically restore the original values before the tool is executed.
+            
+            Example of a tool call with obfuscated data:
+            - User says: "Send email to %s"
+            - You call tool: sendEmail(to="%s", subject="Hello")
+            - The system restores it to: sendEmail(to="user@example.com", subject="Hello")
+            
             Your task is to process the REQUEST, not the placeholders. The system will handle restoration of original values.
             """;
 
-    public static final String SYSTEM_PROMPT_ES = """
-            IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato {{REDACTED:TYPE#HASH}}. NO son errores ni artefactos - son marcadores de seguridad intencionales que protegen Información Personal Identificable (PII).
+    private static final String SYSTEM_PROMPT_ES_TEMPLATE = """
+            IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato %s. NO son errores ni artefactos - son marcadores de seguridad intencionales que protegen Información Personal Identificable (PII).
             
             REGLAS:
             1. NUNCA modifiques, reformatees, elimines o intentes "corregir" estos marcadores
@@ -49,6 +59,15 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
             4. Refiérete a ellos naturalmente como si fueran los datos originales
             5. Si necesitas repetir los datos en tu respuesta, usa el marcador EXACTO tal cual
             6. NO intentes decodificar, adivinar o reconstruir los valores originales
+            
+            LLAMADAS A HERRAMIENTAS:
+            Cuando invoques herramientas, usa los marcadores exactamente como aparecen en la conversación.
+            El sistema restaurará automáticamente los valores originales antes de ejecutar la herramienta.
+            
+            Ejemplo de llamada a herramienta con datos ofuscados:
+            - El usuario dice: "Envía email a %s"
+            - Tú llamas a la herramienta: sendEmail(to="%s", subject="Hola")
+            - El sistema lo restaura a: sendEmail(to="usuario@ejemplo.com", subject="Hola")
             
             Tu tarea es procesar la SOLICITUD, no los marcadores. El sistema se encargará de restaurar los valores originales.
             """;
@@ -60,23 +79,23 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     private final String systemPrompt;
 
     public PromptShieldAdvisor() {
-        this(new ObfuscationEngine(), 0, true, true, SYSTEM_PROMPT_EN);
+        this(new ObfuscationEngine(), 0, true, true, (String) null);
     }
 
     public PromptShieldAdvisor(ObfuscationEngine engine) {
-        this(engine, 0, true, true, SYSTEM_PROMPT_EN);
+        this(engine, 0, true, true, (String) null);
     }
 
     public PromptShieldAdvisor(ObfuscationEngine engine, int order) {
-        this(engine, order, true, true, SYSTEM_PROMPT_EN);
+        this(engine, order, true, true, (String) null);
     }
 
     public PromptShieldAdvisor(ObfuscationEngine engine, int order, boolean restoreOnResponse) {
-        this(engine, order, restoreOnResponse, true, SYSTEM_PROMPT_EN);
+        this(engine, order, restoreOnResponse, true, (String) null);
     }
 
     public PromptShieldAdvisor(ObfuscationEngine engine, int order, boolean restoreOnResponse, boolean injectSystemPrompt) {
-        this(engine, order, restoreOnResponse, injectSystemPrompt, SYSTEM_PROMPT_EN);
+        this(engine, order, restoreOnResponse, injectSystemPrompt, (String) null);
     }
 
     public PromptShieldAdvisor(ObfuscationEngine engine, int order, boolean restoreOnResponse, boolean injectSystemPrompt, String systemPrompt) {
@@ -85,6 +104,29 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         this.restoreOnResponse = restoreOnResponse;
         this.injectSystemPrompt = injectSystemPrompt;
         this.systemPrompt = systemPrompt;
+    }
+
+    public static String generateSystemPrompt(ObfuscationConfig config, String language) {
+        String prefix = config.getRedactedPrefix();
+        String separator = config.getTagSeparator();
+        String tagFormat = "{{" + prefix + ":TYPE" + separator + "HASH}}";
+        String exampleEmailTag = "{{" + prefix + ":EMAIL" + separator + "e5a3b2}}";
+
+        if ("es".equalsIgnoreCase(language)) {
+            return String.format(SYSTEM_PROMPT_ES_TEMPLATE, tagFormat, exampleEmailTag, exampleEmailTag);
+        }
+        return String.format(SYSTEM_PROMPT_EN_TEMPLATE, tagFormat, exampleEmailTag, exampleEmailTag);
+    }
+
+    public static String generateSystemPrompt(ObfuscationConfig config) {
+        return generateSystemPrompt(config, "en");
+    }
+
+    private String getEffectiveSystemPrompt() {
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            return systemPrompt;
+        }
+        return generateSystemPrompt(engine.getConfig());
     }
 
     @Override
@@ -132,7 +174,6 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         List<Message> messages = new ArrayList<>();
         boolean hasSystemMessage = false;
 
-        // Check if there's already a system message
         for (Message message : prompt.getInstructions()) {
             if (message instanceof SystemMessage) {
                 hasSystemMessage = true;
@@ -140,13 +181,14 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
             }
         }
 
-        // Add system prompt if configured and not already present
-        if (injectSystemPrompt && !hasSystemMessage && systemPrompt != null && !systemPrompt.isBlank()) {
-            messages.add(new SystemMessage(systemPrompt));
-            logger.debug("PromptShieldAdvisor: Injected system prompt");
+        if (injectSystemPrompt && !hasSystemMessage) {
+            String effectivePrompt = getEffectiveSystemPrompt();
+            if (effectivePrompt != null && !effectivePrompt.isBlank()) {
+                messages.add(new SystemMessage(effectivePrompt));
+                logger.debug("PromptShieldAdvisor: Injected system prompt");
+            }
         }
 
-        // Obfuscate messages
         for (Message message : prompt.getInstructions()) {
             if (message instanceof UserMessage userMessage) {
                 String obfuscatedText = engine.ofuscar(userMessage.getText());
@@ -172,20 +214,18 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         if (chatResponse.getResult() != null && chatResponse.getResult().getOutput() != null) {
             AssistantMessage output = chatResponse.getResult().getOutput();
             String text = output.getText();
-            
+
             boolean hasTagsInText = text != null && engine.containsTags(text);
             boolean hasToolCalls = output.hasToolCalls();
-            
+
             if (hasTagsInText || hasToolCalls) {
-                // Restore text content
-                String restoredText = hasTagsInText ? engine.restaurar(text) : text;
-                
-                // Restore tool call arguments
+                String restoredText = hasTagsInText ? safeRestore(text) : text;
+
                 List<AssistantMessage.ToolCall> restoredToolCalls = null;
                 if (hasToolCalls) {
                     restoredToolCalls = output.getToolCalls().stream()
                             .map(tc -> {
-                                String restoredArgs = engine.restaurar(tc.arguments());
+                                String restoredArgs = safeRestore(tc.arguments());
                                 return new AssistantMessage.ToolCall(
                                         tc.id(),
                                         tc.type(),
@@ -195,7 +235,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
                             })
                             .toList();
                 }
-                
+
                 var restoredOutput = new AssistantMessage(
                         restoredText,
                         java.util.Map.of(),
@@ -213,6 +253,15 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         }
 
         return response;
+    }
+
+    private String safeRestore(String text) {
+        try {
+            return engine.restaurar(text);
+        } catch (Exception e) {
+            logger.warn("PromptShieldAdvisor: Could not restore text: {}", e.getMessage());
+            return text;
+        }
     }
 
     public ObfuscationEngine getEngine() {

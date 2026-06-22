@@ -44,7 +44,7 @@ class PromptShieldAdvisorTest {
     @BeforeEach
     void setUp() {
         engine = new ObfuscationEngine();
-        advisor = new PromptShieldAdvisor(engine, 0, true, true, PromptShieldAdvisor.SYSTEM_PROMPT_EN);
+        advisor = new PromptShieldAdvisor(engine, 0, true, true);
     }
 
     @Test
