@@ -1,5 +1,9 @@
 server:
   port: 8080
+logging:
+  level:
+    org.springframework.ai: DEBUG
+    org.springframework.web.client: DEBUG
 
 spring:
   application:
@@ -7,11 +11,11 @@ spring:
   # Spring AI Configuration
   ai:
     openai:
-      api-key: ${OPENAI_API_KEY:your-api-key-here}
+      api-key: ollama
+      base-url: http://localhost:11434/
       chat:
         options:
-          model: gpt-4o-mini
-          temperature: 0.7
+          model: qwen3.5:0.8b
 
 obfuscador:
   enabled: true
@@ -22,9 +26,9 @@ obfuscador:
   tag-separator: "#"
   custom-types:
     CODIGO_POSTAL:
-      pattern: "\d{5}"
+      pattern: \d{5}
     N_CUENTA:
-      pattern: "ES\d{22}"
+      pattern: ES\d{22}
 
 prompt-shield:
   advisor:

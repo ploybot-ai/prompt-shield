@@ -3,6 +3,7 @@
 ## Alta prioridad
 - [x] Publicar en Maven Central (com.ploybot)
 - [x] Documentación completa (README con ejemplos de uso)
+- [ ] Cambiar el formato por <<REDACTED:EMAIL#81b562>> o ⟦REDACTED:EMAIL:1⟧ o __REDACTED_EMAIL_1__ o @@ , etc ... , revisar distintas alternativas probalas cy ver cual funciona mejor
 
 ## Media prioridad
 - [ ] Integrar librería de detección de entidades (Named Entity Recognition)
