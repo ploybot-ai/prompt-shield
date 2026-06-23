@@ -4,9 +4,18 @@
 - [x] Publicar en Maven Central (com.ploybot)
 - [x] Documentación completa (README con ejemplos de uso)
 - [x] Cambiar el formato por <<REDACTED:EMAIL#81b562>> o ⟦REDACTED:EMAIL:1⟧ o __REDACTED_EMAIL_1__ o @@ , etc ... , revisar distintas alternativas probalas y ver cual funciona mejor
+- [ ] **SEGURIDAD**: Aislar placeholders por conversación
+  - **Vulnerabilidad**: Si un usuario malintencionado escribe un hash conocido en su prompt (ej: `~REDACTED:EMAIL#abc123~`), el engine podría restaurar el email de **otra persona** si el hash coincide en el storage compartido.
+  - **Solución**: Clave el storage por `conversationId` o `sessionId`. Cada conversación tiene su propio namespace de hashes.
+  - **Opciones**:
+    - **A) Prefijo por conversación**: `conversationId:hash` como clave en StorageService
+    - **B) Scope en ObfuscationConfig**: Añadir `conversationId` al config y filtrar restores por scope
+    - **C) Token efímero**: Generar un token por request que namespacee los hashes
+  - **Recomendación**: Opción A (mínimo cambio, máxima seguridad)
+  - **Riesgo**: Sin esto, un atacante puede inyectar hashes para extraer datos ajenos
 
 ## Media prioridad
-- [ ] Actualizar a última versión de Spring Boot y Spring AI 2.0.0
+- [x] Actualizar a última versión de Spring Boot y Spring AI 2.0.0
   - **Current**: Spring Boot 3.3.0, Spring AI 1.0.0
   - **Target**: Spring Boot 3.4.x, Spring AI 2.0.0
   - **Acciones**:
