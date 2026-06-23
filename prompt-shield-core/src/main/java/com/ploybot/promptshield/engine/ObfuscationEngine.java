@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.ploybot.promptshield.exception.ObfuscationException;
-import com.ploybot.promptshield.exception.TagNotFoundException;
 import com.ploybot.promptshield.hash.HashGenerator;
 import com.ploybot.promptshield.model.ObfuscationConfig;
 import com.ploybot.promptshield.model.ObfuscationTag;
@@ -140,7 +139,7 @@ public class ObfuscationEngine {
                 String originalValue = tagOpt.get().getOriginalValue();
                 matcher.appendReplacement(result, Matcher.quoteReplacement(originalValue));
             } else {
-                throw new TagNotFoundException(hash);
+                matcher.appendReplacement(result, Matcher.quoteReplacement(matcher.group()));
             }
         }
 

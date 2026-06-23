@@ -282,13 +282,13 @@ class ObfuscationEngineTest {
         String restoredB = engineB.restaurar(obfuscatedB);
         assertTrue(restoredB.contains("bob@secret.com"), "Engine B should restore its own data");
 
-        assertThrows(com.ploybot.promptshield.exception.TagNotFoundException.class,
-                () -> engineA.restaurar(obfuscatedB),
-                "Engine A should NOT be able to restore Engine B's data");
+        String attemptedB = engineA.restaurar(obfuscatedB);
+        assertTrue(engineA.containsTags(attemptedB),
+                "Engine A should NOT restore Engine B's data - tags remain as-is");
 
-        assertThrows(com.ploybot.promptshield.exception.TagNotFoundException.class,
-                () -> engineB.restaurar(obfuscatedA),
-                "Engine B should NOT be able to restore Engine A's data");
+        String attemptedA = engineB.restaurar(obfuscatedA);
+        assertTrue(engineB.containsTags(attemptedA),
+                "Engine B should NOT restore Engine A's data - tags remain as-is");
     }
 
     @Test
