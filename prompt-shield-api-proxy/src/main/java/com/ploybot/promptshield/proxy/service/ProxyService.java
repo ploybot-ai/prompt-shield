@@ -65,16 +65,23 @@ public class ProxyService {
 
     private ChatCompletionRequest obfuscateRequest(ChatCompletionRequest request) {
         List<ChatMessage> obfuscatedMessages = new ArrayList<>();
-
-        boolean hasSystemMessage = request.messages().stream()
-                .anyMatch(m -> "system".equals(m.role()));
-
-        if (injectSystemPrompt && !hasSystemMessage) {
-            obfuscatedMessages.add(ChatMessage.system(engine.generateSystemPrompt()));
-        }
+        String obfuscationInstructions = engine.generateSystemPrompt();
 
         for (ChatMessage message : request.messages()) {
-            if (message.content() != null && !message.role().equals("system")) {
+            if ("system".equals(message.role())) {
+                if (injectSystemPrompt) {
+                    String mergedContent = message.content() + "\n\n" + obfuscationInstructions;
+                    obfuscatedMessages.add(new ChatMessage(
+                            message.role(),
+                            mergedContent,
+                            message.name(),
+                            message.toolCalls(),
+                            message.toolCallId()
+                    ));
+                } else {
+                    obfuscatedMessages.add(message);
+                }
+            } else if (message.content() != null) {
                 String obfuscatedContent = engine.ofuscar(message.content());
                 obfuscatedMessages.add(new ChatMessage(
                         message.role(),
@@ -103,6 +110,10 @@ public class ProxyService {
             } else {
                 obfuscatedMessages.add(message);
             }
+        }
+
+        if (injectSystemPrompt && obfuscatedMessages.stream().noneMatch(m -> "system".equals(m.role()))) {
+            obfuscatedMessages.add(0, ChatMessage.system(obfuscationInstructions));
         }
 
         return new ChatCompletionRequest(

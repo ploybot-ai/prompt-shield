@@ -187,25 +187,18 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     private ChatClientRequest obfuscateRequest(ChatClientRequest request) {
         Prompt prompt = request.prompt();
         List<Message> messages = new ArrayList<>();
-        boolean hasSystemMessage = false;
+        String obfuscationInstructions = injectSystemPrompt ? getEffectiveSystemPrompt() : null;
 
         for (Message message : prompt.getInstructions()) {
-            if (message instanceof SystemMessage) {
-                hasSystemMessage = true;
-                break;
-            }
-        }
-
-        if (injectSystemPrompt && !hasSystemMessage) {
-            String effectivePrompt = getEffectiveSystemPrompt();
-            if (effectivePrompt != null && !effectivePrompt.isBlank()) {
-                messages.add(new SystemMessage(effectivePrompt));
-                logger.debug("PromptShieldAdvisor: Injected system prompt");
-            }
-        }
-
-        for (Message message : prompt.getInstructions()) {
-            if (message instanceof UserMessage userMessage) {
+            if (message instanceof SystemMessage systemMessage) {
+                if (injectSystemPrompt && obfuscationInstructions != null) {
+                    String mergedContent = systemMessage.getText() + "\n\n" + obfuscationInstructions;
+                    messages.add(new SystemMessage(mergedContent));
+                    logger.debug("PromptShieldAdvisor: Merged obfuscation instructions into existing system prompt");
+                } else {
+                    messages.add(message);
+                }
+            } else if (message instanceof UserMessage userMessage) {
                 String obfuscatedText = engine.ofuscar(userMessage.getText());
                 messages.add(new UserMessage(obfuscatedText));
             } else if (message instanceof AssistantMessage assistantMessage) {
@@ -214,6 +207,12 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
             } else {
                 messages.add(message);
             }
+        }
+
+        if (injectSystemPrompt && obfuscationInstructions != null
+                && messages.stream().noneMatch(m -> m instanceof SystemMessage)) {
+            messages.add(0, new SystemMessage(obfuscationInstructions));
+            logger.debug("PromptShieldAdvisor: Injected system prompt");
         }
 
         Prompt obfuscatedPrompt = new Prompt(messages, prompt.getOptions());
