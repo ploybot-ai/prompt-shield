@@ -160,14 +160,16 @@ class PromptShieldAdvisorTest {
             ChatClientRequest req = invocation.getArgument(0);
             List<Message> messages = req.prompt().getInstructions();
             
-            // Verify only one system message (the existing one)
+            // Verify only one system message (merged, not duplicated)
             long systemCount = messages.stream()
                     .filter(m -> m instanceof SystemMessage)
                     .count();
             assertEquals(1, systemCount);
             
-            // Verify the existing system message is preserved
-            assertEquals("Existing system prompt", ((SystemMessage) messages.get(0)).getText());
+            // Verify the system message contains both original content and obfuscation instructions
+            String systemText = ((SystemMessage) messages.get(0)).getText();
+            assertTrue(systemText.startsWith("Existing system prompt"));
+            assertTrue(systemText.contains(engine.getConfig().getTagOpen() + "REDACTED:TYPE" + engine.getConfig().getTagSeparator() + "HASH" + engine.getConfig().getTagClose()));
             
             return chainResponse;
         });
