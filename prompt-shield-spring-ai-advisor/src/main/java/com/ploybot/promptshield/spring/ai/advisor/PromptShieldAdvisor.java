@@ -19,6 +19,7 @@ import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
@@ -180,7 +181,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         if (convId instanceof String id && !id.isBlank()) {
             engine.getConfig().setConversationId(id);
         } else {
-            engine.getConfig().setConversationId("default");
+            engine.getConfig().setConversationId(UUID.randomUUID().toString());
         }
     }
 
