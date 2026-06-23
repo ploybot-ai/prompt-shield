@@ -43,7 +43,12 @@ jobs:
         name: Release ${{ steps.version.outputs.VERSION }}
         generate_release_notes: true
         files: |
-          obfuscador-core/target/*.jar
-          obfuscador-spring-boot-starter/target/*.jar
+          prompt-shield-core/target/*.jar
+          prompt-shield-spring-boot-starter/target/*.jar
+          prompt-shield-spring-ai-advisor/target/*.jar
+          prompt-shield-storage-jpa/target/*.jar
+          prompt-shield-storage-redis/target/*.jar
+          prompt-shield-ner-opennlp/target/*.jar
+          prompt-shield-api-proxy/target/*.jar
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,6 +7,50 @@
 
 Library for obfuscating sensitive data in AI prompts. Protect PII (Personally Identifiable Information) before sending to LLMs.
 
+## Why Prompt Shield?
+
+### European Privacy Regulations
+
+The **General Data Protection Regulation (GDPR)**, Regulation (EU) 2016/679, establishes strict requirements for handling personal data. Key principles include:
+
+- **Data minimization**: Only collect and process data that is strictly necessary
+- **Purpose limitation**: Data cannot be used for purposes other than those originally consented
+- **Storage limitation**: Data must be kept only as long as necessary
+- **Integrity and confidentiality**: Appropriate security measures must be implemented
+
+When using AI services (LLMs), sensitive data such as DNI, NIE, emails, or phone numbers may be sent to third-party providers. This creates compliance risks under GDPR.
+
+**Penalties for non-compliance**: Up to €20 million or 4% of annual global turnover, whichever is higher.
+
+### Real-World Example: Xestando Invoicing App
+
+[Xestando](https://app.xestando.com/) is an online invoicing platform for freelancers and SMEs that uses AI to automate document processing. When a user asks the AI to analyze an invoice, the request may contain:
+
+- Customer DNI/NIE for tax identification
+- Email addresses for billing
+- Phone numbers for contact information
+- Bank account numbers (IBAN) for payments
+
+Without obfuscation, this sensitive data would be sent directly to the AI provider, potentially violating GDPR. With Prompt Shield:
+
+```java
+@Service
+public class InvoiceService {
+    
+    private final ChatClient chatClient;
+    
+    public String analyzeInvoice(String invoiceText) {
+        // PII is automatically obfuscated before sending to AI
+        return chatClient.prompt()
+            .user(invoiceText)
+            .call()
+            .content();
+    }
+}
+```
+
+The AI receives placeholders like `~REDACTED:DNI#1c9f96~` instead of actual DNI values, maintaining compliance while preserving functionality.
+
 ## Features
 
 - **Obfuscate sensitive data**: DNI, NIE, email, phone, and custom types
@@ -25,33 +69,31 @@ Library for obfuscating sensitive data in AI prompts. Protect PII (Personally Id
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-core</artifactId>
-    <version>1.0.0-beta.1</version>
+    <version>1.0.0</version>
 </dependency>
 
 <!-- Spring Boot Starter (optional) -->
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-spring-boot-starter</artifactId>
-    <version>1.0.0-beta.1</version>
+    <version>1.0.0</version>
 </dependency>
 
 <!-- Spring AI Advisor (optional) -->
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-spring-ai-advisor</artifactId>
-    <version>1.0.0-beta.1</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'com.ploybot:prompt-shield-core:1.0.0-beta.1'
-implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.0.0-beta.1'
-implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.0.0-beta.1'
+implementation 'com.ploybot:prompt-shield-core:1.0.0'
+implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.0.0'
+implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.0.0'
 ```
-
-> **Note**: For the latest development version, use `1.0.1-SNAPSHOT`
 
 ## Usage
 
@@ -107,7 +149,7 @@ Persona restored = engine.restaurarObjeto(obfuscated, Persona.class);
 
 ```yaml
 # application.yml
-obfuscador:
+prompt-shield:
   enabled: true
   hash-algorithm: SHA-256
   hash-length: 6
@@ -148,7 +190,7 @@ Prompt Shield supports multiple storage backends for obfuscation tags:
 ### In-Memory (Default)
 
 ```yaml
-obfuscador:
+prompt-shield:
   storage:
     type: memory
 ```
@@ -164,7 +206,7 @@ obfuscador:
 ```
 
 ```yaml
-obfuscador:
+prompt-shield:
   storage:
     type: redis
   redis:
@@ -188,7 +230,7 @@ spring:
 ```
 
 ```yaml
-obfuscador:
+prompt-shield:
   storage:
     type: jpa
   jpa:

@@ -43,6 +43,7 @@ class PromptShieldAdvisorToolCallTest {
     }
 
     private String obfuscateAndGetTag(String originalValue) {
+        engine.getConfig().setConversationId("test-conversation");
         String obfuscated = engine.ofuscar(originalValue);
         String tagOpen = engine.getConfig().getTagOpen();
         String tagClose = engine.getConfig().getTagClose();
@@ -61,6 +62,7 @@ class PromptShieldAdvisorToolCallTest {
         Prompt prompt = new Prompt(List.of(userMessage));
         ChatClientRequest request = ChatClientRequest.builder()
                 .prompt(prompt)
+                .context(PromptShieldAdvisor.CONVERSATION_ID_KEY, "test-conversation")
                 .build();
 
         // First, obfuscate the email to store the tag
@@ -275,6 +277,7 @@ class PromptShieldAdvisorToolCallTest {
         Prompt prompt = new Prompt(List.of(userMessage));
         ChatClientRequest request = ChatClientRequest.builder()
                 .prompt(prompt)
+                .context(PromptShieldAdvisor.CONVERSATION_ID_KEY, "test-conversation")
                 .build();
 
         // Obfuscate values to store tags

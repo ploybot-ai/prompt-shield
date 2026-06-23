@@ -18,7 +18,7 @@ public class ObfuscationInterceptor {
         this.engine = engine;
     }
 
-    @Around("@annotation(com.obfuscador.spring.annotation.Obfuscate) || @within(com.obfuscador.spring.annotation.Obfuscate)")
+    @Around("@annotation(com.ploybot.promptshield.spring.annotation.Obfuscate) || @within(com.ploybot.promptshield.spring.annotation.Obfuscate)")
     public Object handleObfuscation(ProceedingJoinPoint joinPoint) throws Throwable {
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
         Parameter[] parameters = signature.getMethod().getParameters();
