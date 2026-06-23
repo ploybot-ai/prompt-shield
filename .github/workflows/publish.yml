@@ -22,8 +22,15 @@ jobs:
         server-id: ossrh
         server-username: MAVEN_USERNAME
         server-password: MAVEN_PASSWORD
-        gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-        gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+    - name: Import GPG key
+      run: |
+        echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d > /tmp/gpg-key.gpg
+        gpg --batch --import /tmp/gpg-key.gpg
+        gpgconf --kill gpg-agent || true
+        rm /tmp/gpg-key.gpg
+      env:
+        GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
 
     - name: Build with Maven
       run: mvn clean compile -B -DskipTests
