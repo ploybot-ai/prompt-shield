@@ -50,6 +50,10 @@ public class ObfuscationEngine {
         this(new ObfuscationConfig(), new InMemoryStorageService());
     }
 
+    private String scopedKey(String hash) {
+        return config.getConversationId() + ":" + hash;
+    }
+
     private Pattern buildTagPattern() {
         String prefix = Pattern.quote(config.getTagOpen() + config.getRedactedPrefix() + ":");
         String separator = Pattern.quote(config.getTagSeparator());
@@ -100,10 +104,11 @@ public class ObfuscationEngine {
             String matchedValue = matcher.group();
             String hash = hashGenerator.generate(matchedValue);
             String tag = formatTag(typeName, hash);
+            String key = scopedKey(hash);
 
-            if (!storageService.contains(hash)) {
+            if (!storageService.contains(key)) {
                 ObfuscationTag obfuscationTag = new ObfuscationTag(typeName, hash, matchedValue);
-                storageService.store(hash, obfuscationTag);
+                storageService.store(key, obfuscationTag);
             }
 
             matcher.appendReplacement(result, Matcher.quoteReplacement(tag));
@@ -128,8 +133,9 @@ public class ObfuscationEngine {
         while (matcher.find()) {
             String type = matcher.group(1);
             String hash = matcher.group(2);
+            String key = scopedKey(hash);
 
-            Optional<ObfuscationTag> tagOpt = storageService.retrieve(hash);
+            Optional<ObfuscationTag> tagOpt = storageService.retrieve(key);
             if (tagOpt.isPresent()) {
                 String originalValue = tagOpt.get().getOriginalValue();
                 matcher.appendReplacement(result, Matcher.quoteReplacement(originalValue));
@@ -159,7 +165,8 @@ public class ObfuscationEngine {
         while (matcher.find()) {
             String type = matcher.group(1);
             String hash = matcher.group(2);
-            storageService.retrieve(hash).ifPresent(tags::add);
+            String key = scopedKey(hash);
+            storageService.retrieve(key).ifPresent(tags::add);
         }
 
         return tags;

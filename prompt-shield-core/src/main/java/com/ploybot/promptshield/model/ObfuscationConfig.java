@@ -13,6 +13,7 @@ public class ObfuscationConfig {
     private String tagSeparator = "#";
     private String tagOpen = "~";
     private String tagClose = "~";
+    private String conversationId = "default";
     private final Map<String, CustomTypeConfig> customTypes = new HashMap<>();
 
     public String getHashAlgorithm() {
@@ -77,6 +78,14 @@ public class ObfuscationConfig {
 
     public void setTagClose(String tagClose) {
         this.tagClose = tagClose;
+    }
+
+    public String getConversationId() {
+        return conversationId;
+    }
+
+    public void setConversationId(String conversationId) {
+        this.conversationId = conversationId;
     }
 
     public Map<String, CustomTypeConfig> getCustomTypes() {

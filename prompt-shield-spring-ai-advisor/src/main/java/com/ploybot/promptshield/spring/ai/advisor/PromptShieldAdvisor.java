@@ -25,6 +25,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     private static final Logger logger = LoggerFactory.getLogger(PromptShieldAdvisor.class);
 
     public static final String OBFUSCATION_ENGINE_KEY = "prompt-shield-engine";
+    public static final String CONVERSATION_ID_KEY = "prompt-shield-conversation-id";
 
     private static final String SYSTEM_PROMPT_EN_TEMPLATE = """
             IMPORTANT: This conversation may contain obfuscated sensitive data markers in the format %s. These are NOT errors or artifacts - they are intentional security placeholders protecting Personally Identifiable Information (PII).
@@ -145,6 +146,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
         logger.debug("PromptShieldAdvisor: Processing request");
 
+        applyConversationId(chatClientRequest);
         ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest);
 
         ChatClientResponse response = callAdvisorChain.nextCall(obfuscatedRequest);
@@ -160,6 +162,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
         logger.debug("PromptShieldAdvisor: Processing stream request");
 
+        applyConversationId(chatClientRequest);
         ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest);
 
         Flux<ChatClientResponse> responseFlux = streamAdvisorChain.nextStream(obfuscatedRequest);
@@ -169,6 +172,16 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         }
 
         return responseFlux;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyConversationId(ChatClientRequest request) {
+        Object convId = request.context().get(CONVERSATION_ID_KEY);
+        if (convId instanceof String id && !id.isBlank()) {
+            engine.getConfig().setConversationId(id);
+        } else {
+            engine.getConfig().setConversationId("default");
+        }
     }
 
     private ChatClientRequest obfuscateRequest(ChatClientRequest request) {

@@ -260,4 +260,53 @@ class ObfuscationEngineTest {
         public String getEmail() { return email; }
         public void setEmail(String email) { this.email = email; }
     }
+
+    @Test
+    void conversationIsolation_differentConversationsCannotRestoreEachOthersData() {
+        InMemoryStorageService sharedStorage = new InMemoryStorageService();
+
+        ObfuscationConfig configA = new ObfuscationConfig();
+        configA.setConversationId("conversation-A");
+        ObfuscationEngine engineA = new ObfuscationEngine(configA, sharedStorage);
+
+        ObfuscationConfig configB = new ObfuscationConfig();
+        configB.setConversationId("conversation-B");
+        ObfuscationEngine engineB = new ObfuscationEngine(configB, sharedStorage);
+
+        String obfuscatedA = engineA.ofuscar("Email de Alice: alice@secret.com");
+        String obfuscatedB = engineB.ofuscar("Email de Bob: bob@secret.com");
+
+        String restoredA = engineA.restaurar(obfuscatedA);
+        assertTrue(restoredA.contains("alice@secret.com"), "Engine A should restore its own data");
+
+        String restoredB = engineB.restaurar(obfuscatedB);
+        assertTrue(restoredB.contains("bob@secret.com"), "Engine B should restore its own data");
+
+        assertThrows(com.ploybot.promptshield.exception.TagNotFoundException.class,
+                () -> engineA.restaurar(obfuscatedB),
+                "Engine A should NOT be able to restore Engine B's data");
+
+        assertThrows(com.ploybot.promptshield.exception.TagNotFoundException.class,
+                () -> engineB.restaurar(obfuscatedA),
+                "Engine B should NOT be able to restore Engine A's data");
+    }
+
+    @Test
+    void conversationIsolation_sameConversationSharesStorage() {
+        InMemoryStorageService sharedStorage = new InMemoryStorageService();
+
+        ObfuscationConfig configA = new ObfuscationConfig();
+        configA.setConversationId("same-conversation");
+        ObfuscationEngine engine1 = new ObfuscationEngine(configA, sharedStorage);
+
+        ObfuscationConfig configB = new ObfuscationConfig();
+        configB.setConversationId("same-conversation");
+        ObfuscationEngine engine2 = new ObfuscationEngine(configB, sharedStorage);
+
+        String obfuscated = engine1.ofuscar("Teléfono: 612345678");
+        String restored = engine2.restaurar(obfuscated);
+
+        assertTrue(restored.contains("612345678"),
+                "Same conversation should be able to restore shared data");
+    }
 }
