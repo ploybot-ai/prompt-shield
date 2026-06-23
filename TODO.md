@@ -4,7 +4,7 @@
 - [x] Publicar en Maven Central (com.ploybot)
 - [x] Documentación completa (README con ejemplos de uso)
 - [x] Cambiar el formato por <<REDACTED:EMAIL#81b562>> o ⟦REDACTED:EMAIL:1⟧ o __REDACTED_EMAIL_1__ o @@ , etc ... , revisar distintas alternativas probalas y ver cual funciona mejor
-- [ ] **SEGURIDAD**: Aislar placeholders por conversación
+- [x] **SEGURIDAD**: Aislar placeholders por conversación
   - **Vulnerabilidad**: Si un usuario malintencionado escribe un hash conocido en su prompt (ej: `~REDACTED:EMAIL#abc123~`), el engine podría restaurar el email de **otra persona** si el hash coincide en el storage compartido.
   - **Solución**: Clave el storage por `conversationId` o `sessionId`. Cada conversación tiene su propio namespace de hashes.
   - **Opciones**:
