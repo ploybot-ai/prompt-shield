@@ -4,6 +4,7 @@ import com.ploybot.promptshield.engine.ObfuscationEngine;
 import com.ploybot.promptshield.model.ObfuscationConfig;
 import com.ploybot.promptshield.storage.InMemoryStorageService;
 import com.ploybot.promptshield.storage.StorageService;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -43,13 +44,14 @@ public class ObfuscationAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public StorageService storageService() {
+    @Qualifier("promptShieldStorageService")
+    public StorageService promptShieldStorageService() {
         return new InMemoryStorageService();
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public ObfuscationEngine obfuscationEngine(ObfuscationConfig config, StorageService storageService) {
+    public ObfuscationEngine obfuscationEngine(ObfuscationConfig config, @Qualifier("promptShieldStorageService") StorageService storageService) {
         return new ObfuscationEngine(config, storageService);
     }
 }

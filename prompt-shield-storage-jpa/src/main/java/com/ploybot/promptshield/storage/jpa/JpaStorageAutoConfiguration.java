@@ -1,6 +1,7 @@
 package com.ploybot.promptshield.storage.jpa;
 
 import com.ploybot.promptshield.storage.jpa.repository.ObfuscationTagRepository;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -22,6 +23,7 @@ public class JpaStorageAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    @Qualifier("promptShieldStorageService")
     public JpaStorageService jpaStorageService(
             ObfuscationTagRepository repository,
             JpaStorageProperties properties) {
