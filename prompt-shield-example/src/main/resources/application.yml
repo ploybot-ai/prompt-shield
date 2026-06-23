@@ -17,29 +17,24 @@ spring:
         options:
           model: qwen3.5:0.8b-mlx
 
-obfuscador:
+prompt-shield:
   enabled: true
   hash-algorithm: SHA-256
   hash-length: 6
   storage-type: memory
   redacted-prefix: "REDACTED"
   tag-separator: "#"
+  tag-open: "~"
+  tag-close: "~"
   custom-types:
     CODIGO_POSTAL:
       pattern: \d{5}
     N_CUENTA:
       pattern: ES\d{22}
 
-prompt-shield:
   advisor:
     enabled: true
     order: 0
     restore-on-response: true
     inject-system-prompt: true
-    # Use built-in system prompt (English or Spanish):
     # system-prompt: "When you see a placeholder like {{REDACTED:TYPE#HASH}}, keep it exactly as-is in your response. Never modify, translate, or remove these placeholders. They will be restored later with the original values."
-    # Or use the default (English):
-    # system-prompt: ""
-    # Or use Spanish:
-    # system-prompt: ""
-    # The default system prompt in PromptShieldAdvisor handles this automatically

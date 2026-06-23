@@ -1,5 +1,6 @@
 package com.ploybot.promptshield.storage.jpa;
 
+import com.ploybot.promptshield.config.PromptShieldProperties;
 import com.ploybot.promptshield.storage.jpa.repository.ObfuscationTagRepository;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -14,8 +15,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 @AutoConfiguration
 @ConditionalOnClass(ObfuscationTagRepository.class)
-@ConditionalOnProperty(prefix = "obfuscador.storage", name = "type", havingValue = "jpa", matchIfMissing = false)
-@EnableConfigurationProperties(JpaStorageProperties.class)
+@ConditionalOnProperty(prefix = "prompt-shield.storage", name = "type", havingValue = "jpa", matchIfMissing = false)
+@EnableConfigurationProperties(PromptShieldProperties.class)
 @EntityScan(basePackages = "com.ploybot.promptshield.storage.jpa.entity")
 @EnableJpaRepositories(basePackages = "com.ploybot.promptshield.storage.jpa.repository")
 @ComponentScan(basePackages = "com.ploybot.promptshield.storage.jpa")
@@ -26,7 +27,7 @@ public class JpaStorageAutoConfiguration {
     @Qualifier("promptShieldStorageService")
     public JpaStorageService jpaStorageService(
             ObfuscationTagRepository repository,
-            JpaStorageProperties properties) {
-        return new JpaStorageService(repository, properties.getTtlHours());
+            PromptShieldProperties properties) {
+        return new JpaStorageService(repository, properties.getStorage().getJpa().getTtlHours());
     }
 }

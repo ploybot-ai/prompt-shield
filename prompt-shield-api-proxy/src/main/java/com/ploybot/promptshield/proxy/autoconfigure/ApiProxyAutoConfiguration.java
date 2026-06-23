@@ -1,5 +1,6 @@
 package com.ploybot.promptshield.proxy.autoconfigure;
 
+import com.ploybot.promptshield.config.PromptShieldProperties;
 import com.ploybot.promptshield.engine.ObfuscationEngine;
 import com.ploybot.promptshield.model.ObfuscationConfig;
 import com.ploybot.promptshield.proxy.client.AiProviderClient;
@@ -17,12 +18,12 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConditionalOnClass(ObfuscationEngine.class)
 @ConditionalOnProperty(prefix = "prompt-shield.proxy", name = "enabled", havingValue = "true", matchIfMissing = true)
-@EnableConfigurationProperties(ApiProxyProperties.class)
+@EnableConfigurationProperties(PromptShieldProperties.class)
 public class ApiProxyAutoConfiguration {
 
-    private final ApiProxyProperties properties;
+    private final PromptShieldProperties properties;
 
-    public ApiProxyAutoConfiguration(ApiProxyProperties properties) {
+    public ApiProxyAutoConfiguration(PromptShieldProperties properties) {
         this.properties = properties;
     }
 
@@ -30,10 +31,12 @@ public class ApiProxyAutoConfiguration {
     @ConditionalOnMissingBean
     public ObfuscationConfig promptShieldObfuscationConfig() {
         ObfuscationConfig config = new ObfuscationConfig();
-        config.setHashAlgorithm(properties.getObfuscation().getHashAlgorithm());
-        config.setHashLength(properties.getObfuscation().getHashLength());
-        config.setRedactedPrefix(properties.getObfuscation().getRedactedPrefix());
-        config.setTagSeparator(properties.getObfuscation().getTagSeparator());
+        config.setHashAlgorithm(properties.getHashAlgorithm());
+        config.setHashLength(properties.getHashLength());
+        config.setRedactedPrefix(properties.getRedactedPrefix());
+        config.setTagSeparator(properties.getTagSeparator());
+        config.setTagOpen(properties.getTagOpen());
+        config.setTagClose(properties.getTagClose());
         return config;
     }
 
@@ -53,19 +56,20 @@ public class ApiProxyAutoConfiguration {
     @ConditionalOnMissingBean
     public AiProviderClient aiProviderClient() {
         return new AiProviderClient(
-                properties.getProvider().getBaseUrl(),
-                properties.getProvider().getApiKey()
+                properties.getProxy().getProvider().getBaseUrl(),
+                properties.getProxy().getProvider().getApiKey()
         );
     }
 
     @Bean
     @ConditionalOnMissingBean
     public ProxyService proxyService(AiProviderClient aiClient, ObfuscationEngine engine) {
+        PromptShieldProperties.ProxyProperties proxyProps = properties.getProxy();
         return new ProxyService(
                 aiClient,
                 engine,
-                properties.getObfuscation().isInjectSystemPrompt(),
-                properties.getObfuscation().isRestoreOnResponse()
+                proxyProps.isInjectSystemPrompt(),
+                proxyProps.isRestoreOnResponse()
         );
     }
 
