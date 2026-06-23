@@ -13,7 +13,7 @@
 
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0-beta.13</version>
     <packaging>pom</packaging>
 
     <name>Prompt Shield - Parent</name>
