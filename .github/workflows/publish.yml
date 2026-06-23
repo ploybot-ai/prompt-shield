@@ -19,18 +19,11 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         cache: maven
-        server-id: ossrh
+        server-id: central
         server-username: MAVEN_USERNAME
         server-password: MAVEN_PASSWORD
-
-    - name: Import GPG key
-      run: |
-        echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d > /tmp/gpg-key.gpg
-        gpg --batch --import /tmp/gpg-key.gpg
-        gpgconf --kill gpg-agent || true
-        rm /tmp/gpg-key.gpg
-      env:
-        GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+        gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
     - name: Build with Maven
       run: mvn clean compile -B -DskipTests
@@ -42,7 +35,7 @@ jobs:
       run: mvn package -B -DskipTests
 
     - name: Publish to Maven Central
-      run: mvn deploy -B -Prelease
+      run: mvn -P release --batch-mode deploy -DskipTests
       env:
         MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
         MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
