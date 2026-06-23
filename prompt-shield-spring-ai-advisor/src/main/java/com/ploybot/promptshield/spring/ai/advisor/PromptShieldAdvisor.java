@@ -144,12 +144,12 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
-        logger.debug("PromptShieldAdvisor: Processing request");
-
         applyConversationId(chatClientRequest);
         ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest);
 
+        logUserMessage(obfuscatedRequest);
         ChatClientResponse response = callAdvisorChain.nextCall(obfuscatedRequest);
+        logAssistantResponse(response);
 
         if (restoreOnResponse) {
             return restoreResponse(response);
@@ -160,12 +160,12 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
-        logger.debug("PromptShieldAdvisor: Processing stream request");
-
         applyConversationId(chatClientRequest);
         ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest);
 
-        Flux<ChatClientResponse> responseFlux = streamAdvisorChain.nextStream(obfuscatedRequest);
+        logUserMessage(obfuscatedRequest);
+        Flux<ChatClientResponse> responseFlux = streamAdvisorChain.nextStream(obfuscatedRequest)
+                .doOnNext(this::logAssistantResponse);
 
         if (restoreOnResponse) {
             return responseFlux.map(this::restoreResponse);
@@ -182,6 +182,33 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         } else {
             engine.getConfig().setConversationId("default");
         }
+    }
+
+    private void logUserMessage(ChatClientRequest request) {
+        if (!logger.isDebugEnabled()) return;
+        for (Message msg : request.prompt().getInstructions()) {
+            if (msg instanceof UserMessage userMessage) {
+                logger.debug(">>> USER: {}", truncate(userMessage.getText()));
+            }
+        }
+    }
+
+    private void logAssistantResponse(ChatClientResponse response) {
+        if (!logger.isDebugEnabled()) return;
+        if (response == null || response.chatResponse() == null) return;
+        var result = response.chatResponse().getResult();
+        if (result != null && result.getOutput() != null) {
+            String text = result.getOutput().getText();
+            if (text != null) {
+                logger.debug("<<< ASSISTANT: {}", truncate(text));
+            }
+        }
+    }
+
+    private String truncate(String text) {
+        if (text == null) return "";
+        String singleLine = text.replace("\n", " ").strip();
+        return singleLine.length() <= 200 ? singleLine : singleLine.substring(0, 200) + "...";
     }
 
     private ChatClientRequest obfuscateRequest(ChatClientRequest request) {

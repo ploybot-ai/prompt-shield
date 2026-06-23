@@ -3,7 +3,11 @@ server:
 logging:
   level:
     org.springframework.ai: DEBUG
+    org.springframework.ai.openai: DEBUG
     org.springframework.web.client: DEBUG
+    org.springframework.http.client: DEBUG
+    org.springframework.web.client.RestClient: DEBUG
+    com.ploybot.promptshield: DEBUG
 
 spring:
   application:

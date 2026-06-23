@@ -65,7 +65,7 @@ mvn spring-boot:run
 # Send a message with sensitive data
 curl -X POST http://localhost:8080/api/ai/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "Mi nombre es Juan y mi DNI es 12345678A. Mi email es juan@example.com"}'
+  -d '{"message": "Mi nombre es Juan y mi DNI es 12345678A. Mi email es juan@example.com, escribe un json con esos datos"}'
 
 # The AI will receive the obfuscated version and return a response
 # with the original data restored
