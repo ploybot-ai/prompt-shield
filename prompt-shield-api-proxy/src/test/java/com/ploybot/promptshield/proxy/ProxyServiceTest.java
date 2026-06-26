@@ -57,7 +57,7 @@ class ProxyServiceTest {
         String tagOpen = engine.getConfig().getTagOpen();
         String tagSep = engine.getConfig().getTagSeparator();
 
-        when(aiClient.chatCompletion(any())).thenAnswer(invocation -> {
+        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
             ChatCompletionRequest captured = invocation.getArgument(0);
             
             assertNotNull(captured.messages());
@@ -82,10 +82,10 @@ class ProxyServiceTest {
             );
         });
 
-        ChatCompletionResponse response = proxyService.chatCompletion(request);
+        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
 
         assertNotNull(response);
-        verify(aiClient, times(1)).chatCompletion(any());
+        verify(aiClient, times(1)).chatCompletion(any(), any());
     }
 
     @Test
@@ -97,7 +97,7 @@ class ProxyServiceTest {
 
         String emailTag = extractTag(engine.ofuscar("juan@example.com"));
 
-        when(aiClient.chatCompletion(any())).thenReturn(new ChatCompletionResponse(
+        when(aiClient.chatCompletion(any(), any())).thenReturn(new ChatCompletionResponse(
                 "chatcmpl-123",
                 "chat.completion",
                 System.currentTimeMillis(),
@@ -110,7 +110,7 @@ class ProxyServiceTest {
                 new ChatCompletionResponse.Usage(10, 20, 30)
         ));
 
-        ChatCompletionResponse response = proxyService.chatCompletion(request);
+        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
 
         assertNotNull(response);
         String content = response.choices().get(0).message().content();
@@ -137,7 +137,7 @@ class ProxyServiceTest {
                 toolArgs
         );
 
-        when(aiClient.chatCompletion(any())).thenReturn(new ChatCompletionResponse(
+        when(aiClient.chatCompletion(any(), any())).thenReturn(new ChatCompletionResponse(
                 "chatcmpl-123",
                 "chat.completion",
                 System.currentTimeMillis(),
@@ -150,7 +150,7 @@ class ProxyServiceTest {
                 new ChatCompletionResponse.Usage(10, 20, 30)
         ));
 
-        ChatCompletionResponse response = proxyService.chatCompletion(request);
+        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
 
         assertNotNull(response);
         var outputMessage = response.choices().get(0).message();
@@ -176,7 +176,7 @@ class ProxyServiceTest {
         String tagOpen = engine.getConfig().getTagOpen();
         String tagSep = engine.getConfig().getTagSeparator();
 
-        when(aiClient.chatCompletion(any())).thenAnswer(invocation -> {
+        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
             ChatCompletionRequest captured = invocation.getArgument(0);
             
             assertEquals(1, captured.messages().size());
@@ -196,9 +196,9 @@ class ProxyServiceTest {
             );
         });
 
-        ChatCompletionResponse response = noObfuscationService.chatCompletion(request);
+        ChatCompletionResponse response = noObfuscationService.chatCompletion(request, null);
 
-        verify(aiClient, times(1)).chatCompletion(any());
+        verify(aiClient, times(1)).chatCompletion(any(), any());
     }
 
     @Test
@@ -212,7 +212,7 @@ class ProxyServiceTest {
 
         String emailTag = extractTag(engine.ofuscar("juan@example.com"));
 
-        when(aiClient.chatCompletion(any())).thenReturn(new ChatCompletionResponse(
+        when(aiClient.chatCompletion(any(), any())).thenReturn(new ChatCompletionResponse(
                 "chatcmpl-123",
                 "chat.completion",
                 System.currentTimeMillis(),
@@ -225,7 +225,7 @@ class ProxyServiceTest {
                 new ChatCompletionResponse.Usage(10, 20, 30)
         ));
 
-        ChatCompletionResponse response = noRestoreService.chatCompletion(request);
+        ChatCompletionResponse response = noRestoreService.chatCompletion(request, null);
 
         assertNotNull(response);
         String content = response.choices().get(0).message().content();
@@ -248,7 +248,7 @@ class ProxyServiceTest {
         String tagOpen = engine.getConfig().getTagOpen();
         String tagSep = engine.getConfig().getTagSeparator();
 
-        when(aiClient.chatCompletion(any())).thenAnswer(invocation -> {
+        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
             ChatCompletionRequest captured = invocation.getArgument(0);
             
             assertEquals(4, captured.messages().size());
@@ -269,8 +269,8 @@ class ProxyServiceTest {
             );
         });
 
-        ChatCompletionResponse response = proxyService.chatCompletion(request);
+        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
 
-        verify(aiClient, times(1)).chatCompletion(any());
+        verify(aiClient, times(1)).chatCompletion(any(), any());
     }
 }

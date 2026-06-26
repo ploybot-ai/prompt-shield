@@ -31,12 +31,12 @@ public class ProxyService {
         this.restoreOnResponse = restoreOnResponse;
     }
 
-    public ChatCompletionResponse chatCompletion(ChatCompletionRequest request) {
+    public ChatCompletionResponse chatCompletion(ChatCompletionRequest request, String apiKey) {
         logger.debug("ProxyService: Processing chat completion request");
 
         ChatCompletionRequest obfuscatedRequest = obfuscateRequest(request);
 
-        ChatCompletionResponse response = aiClient.chatCompletion(obfuscatedRequest);
+        ChatCompletionResponse response = aiClient.chatCompletion(obfuscatedRequest, apiKey);
 
         if (restoreOnResponse) {
             return restoreResponse(response);
@@ -45,12 +45,12 @@ public class ProxyService {
         return response;
     }
 
-    public Flux<ChatCompletionResponse> chatCompletionStream(ChatCompletionRequest request) {
+    public Flux<ChatCompletionResponse> chatCompletionStream(ChatCompletionRequest request, String apiKey) {
         logger.debug("ProxyService: Processing streaming chat completion request");
 
         ChatCompletionRequest obfuscatedRequest = obfuscateRequest(request);
 
-        Flux<ChatCompletionResponse> responseFlux = aiClient.chatCompletionStream(obfuscatedRequest);
+        Flux<ChatCompletionResponse> responseFlux = aiClient.chatCompletionStream(obfuscatedRequest, apiKey);
 
         if (restoreOnResponse) {
             return responseFlux.map(this::restoreResponse);
@@ -59,8 +59,8 @@ public class ProxyService {
         return responseFlux;
     }
 
-    public Object listModels() {
-        return aiClient.listModels();
+    public Object listModels(String apiKey) {
+        return aiClient.listModels(apiKey);
     }
 
     private ChatCompletionRequest obfuscateRequest(ChatCompletionRequest request) {

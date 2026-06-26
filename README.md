@@ -399,6 +399,7 @@ An OpenAI-compatible API proxy that automatically obfuscates PII before forwardi
 ### Features
 
 - **OpenAI-compatible**: Works with any provider that supports OpenAI API format
+- **Transparent proxy**: Client sends API key and model, proxy forwards to provider
 - **Automatic obfuscation**: PII is obfuscated before sending to the AI provider
 - **Automatic restoration**: Original values are restored in the response
 - **Tool call support**: Tool call arguments are also restored
@@ -411,10 +412,9 @@ An OpenAI-compatible API proxy that automatically obfuscates PII before forwardi
 # Pull from Docker Hub
 docker pull ploybot/prompt-shield-api-proxy:latest
 
-# Run with Docker
+# Run with Docker (transparent mode - no API key needed)
 docker run -p 8080:8080 \
   -e PROMPT_SHIELD_PROXY_PROVIDER_BASE_URL=https://api.openai.com \
-  -e PROMPT_SHIELD_PROXY_PROVIDER_API_KEY=sk-xxx \
   ploybot/prompt-shield-api-proxy:latest
 
 # Or use docker-compose
@@ -422,29 +422,23 @@ cd prompt-shield-api-proxy
 docker-compose up
 ```
 
-### Configuration
+### How It Works
 
-```yaml
-prompt-shield:
-  proxy:
-    enabled: true
-    base-path: /v1
-    provider:
-      base-url: https://api.openai.com
-      api-key: ${OPENAI_API_KEY}
-      model: gpt-4o-mini
-    obfuscation:
-      enabled: true
-      inject-system-prompt: true
-      restore-on-response: true
-```
+The proxy is **transparent** - it doesn't store any API keys or models. The client sends everything:
+
+1. **API Key**: Client sends `Authorization: Bearer sk-xxx` header
+2. **Model**: Client sends `model` field in request body
+3. **Proxy**: Forwards request to provider with client's API key
+4. **Obfuscation**: PII is obfuscated before sending to provider
+5. **Restoration**: Original values are restored in the response
 
 ### Usage
 
 ```bash
-# Chat completion
+# Chat completion - client sends API key and model
 curl -X POST http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-api-key" \
   -d '{
     "model": "gpt-4o-mini",
     "messages": [
@@ -452,7 +446,7 @@ curl -X POST http://localhost:8080/v1/chat/completions \
     ]
   }'
 
-# Response (restored)
+# Response (PII obfuscated during processing, restored in response)
 {
   "choices": [{
     "message": {
@@ -461,6 +455,43 @@ curl -X POST http://localhost:8080/v1/chat/completions \
     }
   }]
 }
+```
+
+### With Ollama (Local)
+
+```bash
+# Start Ollama
+ollama serve
+
+# Use proxy with Ollama
+curl -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer not-needed" \
+  -d '{
+    "model": "llama3",
+    "messages": [
+      {"role": "user", "content": "Mi DNI es 12345678Z"}
+    ]
+  }'
+```
+
+### Configuration (Optional)
+
+If you want to set a default API key or base URL:
+
+```yaml
+# application.yml
+prompt-shield:
+  proxy:
+    enabled: true
+    base-path: /v1
+    provider:
+      base-url: https://api.openai.com  # Default provider
+      api-key:                           # Optional default key
+      model: gpt-4o-mini                 # Optional default model
+    obfuscation:
+      inject-system-prompt: true
+      restore-on-response: true
 ```
 
 ### Supported Providers

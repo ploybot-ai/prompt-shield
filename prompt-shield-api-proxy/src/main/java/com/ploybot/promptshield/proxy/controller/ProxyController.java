@@ -25,20 +25,23 @@ public class ProxyController {
     }
 
     @PostMapping(value = "/chat/completions", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Object chatCompletion(@RequestBody ChatCompletionRequest request) {
+    public Object chatCompletion(@RequestBody ChatCompletionRequest request,
+                                 @RequestHeader(value = "Authorization", required = false) String authorization) {
         logger.debug("ProxyController: Received chat completion request, model={}", request.model());
 
+        String apiKey = extractApiKey(authorization);
+
         if (Boolean.TRUE.equals(request.stream())) {
-            return chatCompletionStream(request);
+            return chatCompletionStream(request, apiKey);
         }
 
-        return proxyService.chatCompletion(request);
+        return proxyService.chatCompletion(request, apiKey);
     }
 
-    private SseEmitter chatCompletionStream(ChatCompletionRequest request) {
+    private SseEmitter chatCompletionStream(ChatCompletionRequest request, String apiKey) {
         SseEmitter emitter = new SseEmitter();
 
-        proxyService.chatCompletionStream(request)
+        proxyService.chatCompletionStream(request, apiKey)
                 .subscribe(
                         response -> {
                             try {
@@ -56,13 +59,23 @@ public class ProxyController {
     }
 
     @GetMapping(value = "/models", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Object listModels() {
+    public Object listModels(@RequestHeader(value = "Authorization", required = false) String authorization) {
         logger.debug("ProxyController: Received list models request");
-        return proxyService.listModels();
+
+        String apiKey = extractApiKey(authorization);
+
+        return proxyService.listModels(apiKey);
     }
 
     @GetMapping("/health")
     public Map<String, String> health() {
         return Map.of("status", "ok", "service", "prompt-shield-api-proxy");
+    }
+
+    private String extractApiKey(String authorization) {
+        if (authorization != null && authorization.startsWith("Bearer ")) {
+            return authorization.substring(7);
+        }
+        return null;
     }
 }
