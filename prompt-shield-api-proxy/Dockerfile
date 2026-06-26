@@ -1,7 +1,7 @@
 # Build stage
 FROM eclipse-temurin:17-jdk-jammy AS builder
 WORKDIR /app
-COPY target/prompt-shield-api-proxy-*.jar app.jar
+COPY prompt-shield-api-proxy/target/prompt-shield-api-proxy-*.jar app.jar
 RUN java -Djarmode=layertools -jar app.jar extract
 
 # Runtime stage
