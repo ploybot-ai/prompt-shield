@@ -408,6 +408,9 @@ An OpenAI-compatible API proxy that automatically obfuscates PII before forwardi
 ### Quick Start
 
 ```bash
+# Pull from Docker Hub
+docker pull ploybot/prompt-shield-api-proxy:latest
+
 # Run with Docker
 docker run -p 8080:8080 \
   -e PROMPT_SHIELD_PROXY_PROVIDER_BASE_URL=https://api.openai.com \
