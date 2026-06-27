@@ -54,11 +54,12 @@ The AI receives placeholders like `~REDACTED:DNI#1c9f96~` instead of actual DNI 
 ## Features
 
 - **Obfuscate sensitive data**: DNI, NIE, email, phone, and custom types
+- **Service key detection**: OpenAI, Anthropic, AWS, GitHub, Stripe, and 11 more services
 - **Bidirectional**: Obfuscate prompts and restore original values in responses
 - **JSON support**: Obfuscate objects with type preservation
 - **Spring Boot Starter**: Auto-configuration with sensible defaults
 - **Spring AI Advisor**: Seamless integration with Spring AI
-- **Configurable**: Custom prefixes, separators, and data types
+- **Configurable**: Custom prefixes, separators, data types, and service key toggle
 - **Multiple storage backends**: In-memory, Redis, JPA/H2
 
 ## Quick Start
@@ -308,20 +309,6 @@ public class AIService {
 }
 ```
 
-### Configuration
-
-```yaml
-prompt-shield:
-  advisor:
-    enabled: true
-    order: 0
-    restore-on-response: true
-    hash-algorithm: SHA-256
-    hash-length: 6
-    redacted-prefix: "REDACTED"
-    tag-separator: "#"
-```
-
 ## Supported Data Types
 
 ### PII (Personally Identifiable Information)
@@ -330,7 +317,7 @@ prompt-shield:
 |------|---------|---------|
 | DNI | `\d{8}[A-Za-z]` | 12345678Z |
 | NIE | `[XYZxyz]\d{7}[A-Za-z]` | X1234567A |
-| EMAIL | `[\w.+-]+@[\\w.-]+\\.\\w{2,}` | user@email.com |
+| EMAIL | `[\w.+-]+@[\w.-]+\.\w{2,}` | user@email.com |
 | TELEFONO | `\b\d{9}\b` | 612345678 |
 | CODIGO_POSTAL | `\b\d{5}\b` | 28001 |
 | N_CUENTA | `ES\d{22}` | ES1234567890123456789012 |
@@ -383,6 +370,8 @@ Examples:
 ObfuscationConfig config = new ObfuscationConfig();
 config.setRedactedPrefix("OBFUSCADO");
 config.setTagSeparator("_");
+config.setTagOpen("[[");
+config.setTagClose("]]");
 
 // Result: [[OBFUSCADO:DNI_1c9f96]]
 ```

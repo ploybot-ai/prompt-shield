@@ -132,7 +132,7 @@ curl http://localhost:8080/v1/health
 |------|---------|---------|
 | DNI | `\d{8}[A-Za-z]` | 12345678Z |
 | NIE | `[XYZxyz]\d{7}[A-Za-z]` | X1234567A |
-| EMAIL | `[\w.+-]+@[\\w.-]+\\.\\w{2,}` | user@email.com |
+| EMAIL | `[\w.+-]+@[\w.-]+\.\w{2,}` | user@email.com |
 | TELEFONO | `\b\d{9}\b` | 612345678 |
 | CODIGO_POSTAL | `\b\d{5}\b` | 28001 |
 | N_CUENTA | `ES\d{22}` | ES1234567890123456789012 |
