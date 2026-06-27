@@ -14,6 +14,7 @@ public class ObfuscationConfig {
     private String tagOpen = "~";
     private String tagClose = "~";
     private String conversationId = "default";
+    private boolean serviceKeysEnabled = true;
     private final Map<String, CustomTypeConfig> customTypes = new HashMap<>();
 
     public String getHashAlgorithm() {
@@ -86,6 +87,14 @@ public class ObfuscationConfig {
 
     public void setConversationId(String conversationId) {
         this.conversationId = conversationId;
+    }
+
+    public boolean isServiceKeysEnabled() {
+        return serviceKeysEnabled;
+    }
+
+    public void setServiceKeysEnabled(boolean serviceKeysEnabled) {
+        this.serviceKeysEnabled = serviceKeysEnabled;
     }
 
     public Map<String, CustomTypeConfig> getCustomTypes() {

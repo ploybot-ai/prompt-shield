@@ -15,6 +15,11 @@
     <description>OpenAI-compatible API proxy with automatic PII obfuscation</description>
     <packaging>jar</packaging>
 
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <maven.install.skip>true</maven.install.skip>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.ploybot</groupId>

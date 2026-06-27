@@ -16,6 +16,7 @@ public class PromptShieldProperties {
     private String tagSeparator = "#";
     private String tagOpen = "~";
     private String tagClose = "~";
+    private boolean serviceKeysEnabled = true;
     private final Map<String, CustomTypeProperties> customTypes = new HashMap<>();
     private final AdvisorProperties advisor = new AdvisorProperties();
     private final ProxyProperties proxy = new ProxyProperties();
@@ -83,6 +84,14 @@ public class PromptShieldProperties {
 
     public void setTagClose(String tagClose) {
         this.tagClose = tagClose;
+    }
+
+    public boolean isServiceKeysEnabled() {
+        return serviceKeysEnabled;
+    }
+
+    public void setServiceKeysEnabled(boolean serviceKeysEnabled) {
+        this.serviceKeysEnabled = serviceKeysEnabled;
     }
 
     public Map<String, CustomTypeProperties> getCustomTypes() {

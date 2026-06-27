@@ -11,12 +11,19 @@ public class DataTypeRegistry {
     private final Map<String, Pattern> registeredTypes;
 
     public DataTypeRegistry() {
-        this.registeredTypes = new LinkedHashMap<>();
-        registerBuiltInTypes();
+        this(true);
     }
 
-    private void registerBuiltInTypes() {
+    public DataTypeRegistry(boolean serviceKeysEnabled) {
+        this.registeredTypes = new LinkedHashMap<>();
+        registerBuiltInTypes(serviceKeysEnabled);
+    }
+
+    private void registerBuiltInTypes(boolean serviceKeysEnabled) {
         for (SensitiveDataType type : SensitiveDataType.values()) {
+            if (!serviceKeysEnabled && type.isServiceKey()) {
+                continue;
+            }
             registeredTypes.put(type.getTypeName(), Pattern.compile(type.getPattern()));
         }
     }

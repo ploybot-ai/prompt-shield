@@ -30,6 +30,7 @@ prompt-shield:
   tag-separator: "#"
   tag-open: "~"
   tag-close: "~"
+  service-keys-enabled: true
   custom-types:
     CODIGO_POSTAL:
       pattern: \d{5}

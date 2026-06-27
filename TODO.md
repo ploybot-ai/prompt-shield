@@ -15,6 +15,10 @@
   - **Riesgo**: Sin esto, un atacante puede inyectar hashes para extraer datos ajenos
 
 ## Media prioridad
+- [x] Detección de claves de servicio (API keys) de servicios populares
+  - 16 tipos built-in: OpenAI, Anthropic, Google AI, HuggingFace, AWS, Azure, DigitalOcean, GitHub, GitLab, npm, PyPI, Slack, Twilio, SendGrid, Mailgun, Stripe
+  - Service keys procesados primero en el enum para evitar corrupción por patrones genéricos
+  - Patrones genéricos (TELEFONO, CODIGO_POSTAL) usan word boundaries `\b`
 - [x] Actualizar a última versión de Spring Boot y Spring AI 2.0.0
   - **Current**: Spring Boot 3.3.0, Spring AI 1.0.0
   - **Target**: Spring Boot 3.4.x, Spring AI 2.0.0

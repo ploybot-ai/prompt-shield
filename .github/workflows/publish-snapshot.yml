@@ -1,9 +1,7 @@
 name: Publish SNAPSHOT to Maven Central
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   publish-snapshot:
@@ -12,6 +10,16 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
+
+    - name: Verify SNAPSHOT version
+      run: |
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        if [[ "$VERSION" != *"SNAPSHOT"* ]]; then
+          echo "ERROR: La versión actual ($VERSION) no es SNAPSHOT."
+          echo "Usa el workflow 'Release' para publicar versiones release."
+          exit 1
+        fi
+        echo "Publicando SNAPSHOT: $VERSION"
 
     - name: Set up JDK 17
       uses: actions/setup-java@v5

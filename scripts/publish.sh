@@ -41,4 +41,4 @@ mvn central-publishing:publish -Prelease
 
 echo "=== Publicación completada ==="
 echo "La librería estará disponible en Maven Central en unos minutos."
-echo "https://central.sonatype.com/artifact/com.obfuscador/obfuscador-core"
+echo "https://central.sonatype.com/artifact/com.ploybot/prompt-shield-core"

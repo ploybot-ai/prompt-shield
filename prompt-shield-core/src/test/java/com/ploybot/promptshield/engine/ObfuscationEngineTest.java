@@ -262,6 +262,190 @@ class ObfuscationEngineTest {
     }
 
     @Test
+    void ofuscarOpenAIKey() {
+        String result = engine.ofuscar("API key: sk-proj-abc123def456ghi789jkl012mno");
+        assertTrue(engine.containsTags(result));
+        assertFalse(result.contains("sk-proj-abc123def456ghi789jkl012mno"));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("OPENAI_API_KEY")));
+    }
+
+    @Test
+    void ofuscarAnthropicKey() {
+        String result = engine.ofuscar("Key: sk-ant-api03-abc123def456ghi789jkl012");
+        assertTrue(engine.containsTags(result));
+        assertFalse(result.contains("sk-ant-api03-abc123def456ghi789jkl012"));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("ANTHROPIC_API_KEY")));
+    }
+
+    @Test
+    void ofuscarGoogleAIKey() {
+        String result = engine.ofuscar("Google key: AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q");
+        assertTrue(engine.containsTags(result));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("GOOGLE_AI_KEY")));
+    }
+
+    @Test
+    void ofuscarHuggingFaceToken() {
+        String result = engine.ofuscar("HF token: hf_abc123def456ghi789jkl012mno34pqrst");
+        assertTrue(engine.containsTags(result));
+        assertFalse(result.contains("hf_abc123def456ghi789jkl012mno34"));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("HUGGINGFACE_TOKEN")));
+    }
+
+    @Test
+    void ofuscarAWSAccessKey() {
+        String result = engine.ofuscar("AWS key: AKIAIOSFODNN7EXAMPLE");
+        assertTrue(engine.containsTags(result));
+        assertFalse(result.contains("AKIAIOSFODNN7EXAMPLE"));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("AWS_ACCESS_KEY")));
+    }
+
+    @Test
+    void ofuscarAzureStorageKey() {
+        String key = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMnOpQrStUvWxYz==";
+        String result = engine.ofuscar("Azure key: " + key);
+        assertTrue(engine.containsTags(result));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("AZURE_STORAGE_KEY")));
+    }
+
+    @Test
+    void ofuscarDigitalOceanToken() {
+        String result = engine.ofuscar("DO token: dop_v1_abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
+        assertTrue(engine.containsTags(result));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("DIGITALOCEAN_TOKEN")));
+    }
+
+    @Test
+    void ofuscarGitHubToken() {
+        String result = engine.ofuscar("GH token: ghp_ABCDEFghijklMNOPqrstuvwxYZ0123456789");
+        assertTrue(engine.containsTags(result));
+        assertFalse(result.contains("ghp_ABCDEFghijklMNOPqrstuvwxYZ0123456789"));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("GITHUB_TOKEN")));
+    }
+
+    @Test
+    void ofuscarGitLabToken() {
+        String result = engine.ofuscar("GL token: glpat-abc123def456ghi789jkl");
+        assertTrue(engine.containsTags(result));
+        assertFalse(result.contains("glpat-abc123def456ghi789"));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("GITLAB_TOKEN")));
+    }
+
+    @Test
+    void ofuscarNpmToken() {
+        String result = engine.ofuscar("npm token: npm_ABCDEFghijklMNOPqrstuvwxYZ0123456789");
+        assertTrue(engine.containsTags(result));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("NPM_TOKEN")));
+    }
+
+    @Test
+    void ofuscarPypiToken() {
+        String result = engine.ofuscar("PyPI token: pypi-AgEIcHlwaS5vcmcCJGY4NjMxMjctNjBhNi00NzEwLWE0ZTktMGFiNDE2NzI2MzA4Cmc6AQQ");
+        assertTrue(engine.containsTags(result));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("PYPI_TOKEN")));
+    }
+
+    @Test
+    void ofuscarSlackToken() {
+        String result = engine.ofuscar("Slack token: xoxb-123456789012-1234567890123-abcDefGhiJklMnoPqrStu12");
+        assertTrue(engine.containsTags(result));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("SLACK_TOKEN")));
+    }
+
+    @Test
+    void ofuscarTwilioApiKey() {
+        String result = engine.ofuscar("Twilio key: SKabcdef0123456789abcdef0123456789");
+        assertTrue(engine.containsTags(result));
+        assertFalse(result.contains("SKabcdef0123456789abcdef0123456789"));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("TWILIO_API_KEY")));
+    }
+
+    @Test
+    void ofuscarSendGridKey() {
+        String result = engine.ofuscar("SG key: SG.abcdef1234567890abcdef.XYZWVUtsrqponmlkjihgfedcba9876543210WVUTSRa");
+        assertTrue(engine.containsTags(result));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("SENDGRID_KEY")));
+    }
+
+    @Test
+    void ofuscarMailgunKey() {
+        String result = engine.ofuscar("Mailgun key: key-abcdef0123456789abcdef0123456789");
+        assertTrue(engine.containsTags(result));
+        assertFalse(result.contains("key-abcdef0123456789abcdef0123456789"));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("MAILGUN_API_KEY")));
+    }
+
+    @Test
+    void ofuscarStripeKey() {
+        String result = engine.ofuscar("Stripe key: sk_live_abcdef0123456789abcdef0123456789");
+        assertTrue(engine.containsTags(result));
+        assertFalse(result.contains("sk_live_abcdef0123456789abcdef0123456789"));
+        List<ObfuscationTag> tags = engine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("STRIPE_KEY")));
+    }
+
+    @Test
+    void restaurarServiceKeys() {
+        String text = "OpenAI: sk-proj-abc123def456ghi789jkl012mno, GitHub: ghp_ABCDEFghijklMNOPqrstuvwxYZ0123456789";
+        String ofuscado = engine.ofuscar(text);
+        String restaurado = engine.restaurar(ofuscado);
+        assertTrue(restaurado.contains("sk-proj-abc123def456ghi789jkl012mno"));
+        assertTrue(restaurado.contains("ghp_ABCDEFghijklMNOPqrstuvwxYZ0123456789"));
+    }
+
+    @Test
+    void serviceKeysNoFalsosPositivos() {
+        String normal = "Mi contraseña es miPassword123 y mi usuario es juan";
+        String result = engine.ofuscar(normal);
+        assertFalse(engine.containsTags(result), "Textos normales no deben ser ofuscados como service keys");
+    }
+
+    @Test
+    void serviceKeysDisabled_noDetectServiceKeys() {
+        ObfuscationConfig disabledConfig = new ObfuscationConfig();
+        disabledConfig.setServiceKeysEnabled(false);
+        ObfuscationEngine disabledEngine = new ObfuscationEngine(disabledConfig, new InMemoryStorageService());
+
+        String result = disabledEngine.ofuscar("OpenAI: sk-proj-abc123def456ghi789jkl012mno");
+        assertFalse(disabledEngine.containsTags(result), "Service keys no deben detectarse cuando serviceKeysEnabled=false");
+        assertTrue(result.contains("sk-proj-abc123def456ghi789jkl012mno"), "El valor original debe permanecer intacto");
+    }
+
+    @Test
+    void serviceKeysDisabled_stillDetectPII() {
+        ObfuscationConfig disabledConfig = new ObfuscationConfig();
+        disabledConfig.setServiceKeysEnabled(false);
+        ObfuscationEngine disabledEngine = new ObfuscationEngine(disabledConfig, new InMemoryStorageService());
+
+        String result = disabledEngine.ofuscar("DNI: 12345678Z, Email: test@example.com");
+        assertTrue(disabledEngine.containsTags(result), "PII sigue detectándose con serviceKeysEnabled=false");
+        List<ObfuscationTag> tags = disabledEngine.extractTags(result);
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("DNI")));
+        assertTrue(tags.stream().anyMatch(t -> t.getType().equals("EMAIL")));
+    }
+
+    @Test
+    void serviceKeysEnabled_detectAll() {
+        assertTrue(engine.containsTags(engine.ofuscar("OpenAI: sk-proj-abc123def456ghi789jkl012mno")));
+        assertTrue(engine.containsTags(engine.ofuscar("GitHub: ghp_ABCDEFghijklMNOPqrstuvwxYZ0123456789")));
+    }
+
+    @Test
     void conversationIsolation_differentConversationsCannotRestoreEachOthersData() {
         InMemoryStorageService sharedStorage = new InMemoryStorageService();
 

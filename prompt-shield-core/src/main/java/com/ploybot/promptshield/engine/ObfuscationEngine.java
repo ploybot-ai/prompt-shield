@@ -36,7 +36,7 @@ public class ObfuscationEngine {
     public ObfuscationEngine(ObfuscationConfig config, StorageService storageService) {
         this.config = config;
         this.hashGenerator = new HashGenerator(config.getHashAlgorithm(), config.getHashLength());
-        this.registry = new DataTypeRegistry();
+        this.registry = new DataTypeRegistry(config.isServiceKeysEnabled());
         this.storageService = storageService;
         this.tagPattern = buildTagPattern();
 

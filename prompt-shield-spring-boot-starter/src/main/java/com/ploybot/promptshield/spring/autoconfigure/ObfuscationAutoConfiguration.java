@@ -37,6 +37,7 @@ public class ObfuscationAutoConfiguration {
         config.setTagSeparator(properties.getTagSeparator());
         config.setTagOpen(properties.getTagOpen());
         config.setTagClose(properties.getTagClose());
+        config.setServiceKeysEnabled(properties.isServiceKeysEnabled());
 
         for (var entry : properties.getCustomTypes().entrySet()) {
             config.addCustomType(entry.getKey(), entry.getValue().getPattern());
