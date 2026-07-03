@@ -37,3 +37,13 @@ logs/
 # Environment
 .env
 .env.local
+
+# LinkedIn posts
+docs/linkedin-post-*.md
+
+# Internal plans and documentation
+PLAN-*.md
+PLAN.md
+TODO.md
+OLLAMA-RESULTS.md
+openspec/
