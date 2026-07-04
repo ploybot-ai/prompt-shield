@@ -185,6 +185,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: v${{ inputs.version }}
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -199,6 +200,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: v${{ inputs.version }}
           name: Release v${{ inputs.version }}
           generate_release_notes: true
           files: |
@@ -210,3 +212,43 @@ jobs:
             prompt-shield-ner-opennlp/target/*.jar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  bump-snapshot:
+    name: Bump to next SNAPSHOT
+    needs: github-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Bump to next SNAPSHOT
+        run: |
+          CURRENT="${{ inputs.version }}"
+          MAJOR=$(echo $CURRENT | cut -d. -f1)
+          MINOR=$(echo $CURRENT | cut -d. -f2)
+          NEXT_MINOR=$((MINOR + 1))
+          NEXT_VERSION="${MAJOR}.${NEXT_MINOR}.0-SNAPSHOT"
+          echo "Bumping to $NEXT_VERSION"
+          mvn versions:set -DnewVersion=$NEXT_VERSION -DgenerateBackupPoms=false
+          mvn versions:commit
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: bump to next SNAPSHOT version" || echo "No changes to commit"
+          git push origin main
