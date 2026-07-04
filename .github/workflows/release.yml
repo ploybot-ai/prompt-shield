@@ -7,6 +7,11 @@ on:
         description: 'Número de versión release (ej: 1.0.1) - SIN SNAPSHOT'
         required: true
         type: string
+      release_notes:
+        description: 'Notas de la release (opcional). Si se vacía, se generan automáticamente'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   validate:
@@ -202,7 +207,8 @@ jobs:
         with:
           tag_name: v${{ inputs.version }}
           name: Release v${{ inputs.version }}
-          generate_release_notes: true
+          body: ${{ inputs.release_notes || '' }}
+          generate_release_notes: ${{ inputs.release_notes == '' }}
           files: |
             prompt-shield-core/target/*.jar
             prompt-shield-spring-boot-starter/target/*.jar
