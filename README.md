@@ -239,8 +239,8 @@ prompt-shield:
 prompt-shield:
   storage:
     type: redis
-  redis:
-    ttl-hours: 24
+    redis:
+      ttl-hours: 24
 
 spring:
   data:
@@ -263,9 +263,9 @@ spring:
 prompt-shield:
   storage:
     type: jpa
-  jpa:
-    ttl-hours: 24
-    cleanup-enabled: true
+    jpa:
+      ttl-hours: 24
+      cleanup-enabled: true
 
 spring:
   datasource:
