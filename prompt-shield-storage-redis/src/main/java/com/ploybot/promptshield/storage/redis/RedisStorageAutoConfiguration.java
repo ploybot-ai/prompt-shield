@@ -16,7 +16,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 @AutoConfiguration
 @AutoConfigureBefore(name = {
         "com.ploybot.promptshield.spring.autoconfigure.ObfuscationAutoConfiguration",
-        "com.ploybot.promptshield.spring.ai.autoconfigure.PromptShieldAdvisorAutoConfiguration"
+        "com.ploybot.promptshield.spring.ai.autoconfigure.PromptShieldAdvisorAutoConfiguration",
+        "com.ploybot.promptshield.proxy.autoconfigure.ApiProxyAutoConfiguration"
 })
 @ConditionalOnClass(StringRedisTemplate.class)
 @ConditionalOnProperty(prefix = "prompt-shield.storage", name = "type", havingValue = "redis", matchIfMissing = false)

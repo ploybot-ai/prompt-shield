@@ -32,7 +32,7 @@ class ObfuscationEngineTest {
 
     @Test
     void ofuscarNIE() {
-        String result = engine.ofuscar("Mi NIE es X1234567A");
+        String result = engine.ofuscar("Mi NIE es X1234567L");
         assertNotNull(result);
         assertTrue(engine.containsTags(result));
     }
@@ -179,24 +179,24 @@ class ObfuscationEngineTest {
 
     @Test
     void ofuscarObjetoConArray() {
-        String json = "{\"personas\":[{\"dni\":\"12345678Z\"},{\"dni\":\"87654321A\"}]}";
+        String json = "{\"personas\":[{\"dni\":\"12345678Z\"},{\"dni\":\"87654321X\"}]}";
         String ofuscado = engine.ofuscarObjetoJson(json);
 
         assertNotNull(ofuscado);
         assertTrue(engine.containsTags(ofuscado));
         assertFalse(ofuscado.contains("12345678Z"));
-        assertFalse(ofuscado.contains("87654321A"));
+        assertFalse(ofuscado.contains("87654321X"));
     }
 
     @Test
     void restaurarObjetoConArray() {
-        String json = "{\"personas\":[{\"dni\":\"12345678Z\"},{\"dni\":\"87654321A\"}]}";
+        String json = "{\"personas\":[{\"dni\":\"12345678Z\"},{\"dni\":\"87654321X\"}]}";
         String ofuscado = engine.ofuscarObjetoJson(json);
         String restaurado = engine.restaurarObjetoJson(ofuscado);
 
         assertNotNull(restaurado);
         assertTrue(restaurado.contains("12345678Z"));
-        assertTrue(restaurado.contains("87654321A"));
+        assertTrue(restaurado.contains("87654321X"));
     }
 
     @Test

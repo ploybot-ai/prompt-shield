@@ -8,14 +8,14 @@ import com.ploybot.promptshield.proxy.controller.ProxyController;
 import com.ploybot.promptshield.proxy.service.ProxyService;
 import com.ploybot.promptshield.storage.InMemoryStorageService;
 import com.ploybot.promptshield.storage.StorageService;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
-@Configuration
+@AutoConfiguration
 @ConditionalOnClass(ObfuscationEngine.class)
 @ConditionalOnProperty(prefix = "prompt-shield.proxy", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(PromptShieldProperties.class)
@@ -37,11 +37,21 @@ public class ApiProxyAutoConfiguration {
         config.setTagSeparator(properties.getTagSeparator());
         config.setTagOpen(properties.getTagOpen());
         config.setTagClose(properties.getTagClose());
+        config.setStorageType(properties.getStorage().getType());
+        config.setEnabled(properties.isEnabled());
+        config.setServiceKeysEnabled(properties.isServiceKeysEnabled());
+        config.setChecksumValidationEnabled(properties.isChecksumValidationEnabled());
+        config.setHmacSecret(properties.getHmacSecret());
+
+        for (var entry : properties.getCustomTypes().entrySet()) {
+            config.addCustomType(entry.getKey(), entry.getValue().getPattern());
+        }
         return config;
     }
 
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(StorageService.class)
+    @ConditionalOnProperty(prefix = "prompt-shield.storage", name = "type", havingValue = "memory", matchIfMissing = true)
     public StorageService promptShieldStorageService() {
         return new InMemoryStorageService();
     }

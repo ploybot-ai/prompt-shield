@@ -13,8 +13,10 @@ public class ObfuscationConfig {
     private String tagSeparator = "#";
     private String tagOpen = "~";
     private String tagClose = "~";
-    private String conversationId = "default";
+    private String scopeId = "default";
     private boolean serviceKeysEnabled = true;
+    private boolean checksumValidationEnabled = true;
+    private String hmacSecret;
     private final Map<String, CustomTypeConfig> customTypes = new HashMap<>();
 
     public String getHashAlgorithm() {
@@ -81,12 +83,50 @@ public class ObfuscationConfig {
         this.tagClose = tagClose;
     }
 
-    public String getConversationId() {
-        return conversationId;
+    /**
+     * Default scope used by the legacy, unscoped engine methods.
+     *
+     * <p>Prefer {@code ObfuscationEngine#forScope(String)} for concurrent or
+     * multi-tenant applications. The value is an opaque caller-defined boundary,
+     * such as a conversation, user, tenant, or request id.
+     */
+    public String getScopeId() {
+        return scopeId;
     }
 
+    public void setScopeId(String scopeId) {
+        if (scopeId == null || scopeId.isBlank()) {
+            throw new IllegalArgumentException("scopeId must not be null or blank");
+        }
+        this.scopeId = scopeId;
+    }
+
+    /** @deprecated since 1.3.0; use {@link #getScopeId()}. */
+    @Deprecated(since = "1.3.0")
+    public String getConversationId() {
+        return getScopeId();
+    }
+
+    /** @deprecated since 1.3.0; use {@link #setScopeId(String)}. */
+    @Deprecated(since = "1.3.0")
     public void setConversationId(String conversationId) {
-        this.conversationId = conversationId;
+        setScopeId(conversationId);
+    }
+
+    public boolean isChecksumValidationEnabled() {
+        return checksumValidationEnabled;
+    }
+
+    public void setChecksumValidationEnabled(boolean checksumValidationEnabled) {
+        this.checksumValidationEnabled = checksumValidationEnabled;
+    }
+
+    public String getHmacSecret() {
+        return hmacSecret;
+    }
+
+    public void setHmacSecret(String hmacSecret) {
+        this.hmacSecret = hmacSecret;
     }
 
     public boolean isServiceKeysEnabled() {

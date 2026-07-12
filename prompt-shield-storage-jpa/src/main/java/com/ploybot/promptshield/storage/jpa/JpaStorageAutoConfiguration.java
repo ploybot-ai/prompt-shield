@@ -18,7 +18,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 @AutoConfiguration
 @AutoConfigureBefore(name = {
         "com.ploybot.promptshield.spring.autoconfigure.ObfuscationAutoConfiguration",
-        "com.ploybot.promptshield.spring.ai.autoconfigure.PromptShieldAdvisorAutoConfiguration"
+        "com.ploybot.promptshield.spring.ai.autoconfigure.PromptShieldAdvisorAutoConfiguration",
+        "com.ploybot.promptshield.proxy.autoconfigure.ApiProxyAutoConfiguration"
 })
 @ConditionalOnClass(ObfuscationTagRepository.class)
 @ConditionalOnProperty(prefix = "prompt-shield.storage", name = "type", havingValue = "jpa", matchIfMissing = false)

@@ -379,7 +379,7 @@ class DelimiterFormatTest {
             ObfuscationEngine engine = new ObfuscationEngine(config, storageService);
 
             // Test with multiple data types
-            String text = "DNI: 12345678Z, NIE: X1234567A, Email: test@test.com, Tel: 612345678";
+            String text = "DNI: 12345678Z, NIE: X1234567L, Email: test@test.com, Tel: 612345678";
             String obfuscated = engine.ofuscar(text);
             String restored = engine.restaurar(obfuscated);
             assertEquals(text, restored);
@@ -547,7 +547,7 @@ class DelimiterFormatTest {
         @Order(64)
         @DisplayName("Measure obfuscation performance for each delimiter format")
         void measurePerformance() {
-            String text = "Mi DNI es 12345678Z, mi NIE es X1234567A, mi email es user@email.com, mi teléfono es 612345678, mi código postal es 28001";
+            String text = "Mi DNI es 12345678Z, mi NIE es X1234567L, mi email es user@email.com, mi teléfono es 612345678, mi código postal es 28001";
             
             String[][] formats = {
                 {"{{", "}}"},

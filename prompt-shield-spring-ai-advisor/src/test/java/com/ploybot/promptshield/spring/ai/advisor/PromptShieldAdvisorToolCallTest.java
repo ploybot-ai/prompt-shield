@@ -13,6 +13,7 @@ import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -43,8 +44,7 @@ class PromptShieldAdvisorToolCallTest {
     }
 
     private String obfuscateAndGetTag(String originalValue) {
-        engine.getConfig().setConversationId("test-conversation");
-        String obfuscated = engine.ofuscar(originalValue);
+        String obfuscated = engine.forScope("test-conversation").obfuscate(originalValue);
         String tagOpen = engine.getConfig().getTagOpen();
         String tagClose = engine.getConfig().getTagClose();
         int start = obfuscated.indexOf(tagOpen);
@@ -62,7 +62,7 @@ class PromptShieldAdvisorToolCallTest {
         Prompt prompt = new Prompt(List.of(userMessage));
         ChatClientRequest request = ChatClientRequest.builder()
                 .prompt(prompt)
-                .context(PromptShieldAdvisor.CONVERSATION_ID_KEY, "test-conversation")
+                .context(ChatMemory.CONVERSATION_ID, "test-conversation")
                 .build();
 
         // First, obfuscate the email to store the tag
@@ -121,6 +121,7 @@ class PromptShieldAdvisorToolCallTest {
         Prompt prompt = new Prompt(List.of(userMessage));
         ChatClientRequest request = ChatClientRequest.builder()
                 .prompt(prompt)
+                .context(PromptShieldAdvisor.SCOPE_ID_KEY, "test-conversation")
                 .build();
 
         // Obfuscate both values to store tags
@@ -216,6 +217,7 @@ class PromptShieldAdvisorToolCallTest {
         Prompt prompt = new Prompt(List.of(userMessage));
         ChatClientRequest request = ChatClientRequest.builder()
                 .prompt(prompt)
+                .context(PromptShieldAdvisor.SCOPE_ID_KEY, "test-conversation")
                 .build();
 
         // Obfuscate both emails to store tags
@@ -277,7 +279,7 @@ class PromptShieldAdvisorToolCallTest {
         Prompt prompt = new Prompt(List.of(userMessage));
         ChatClientRequest request = ChatClientRequest.builder()
                 .prompt(prompt)
-                .context(PromptShieldAdvisor.CONVERSATION_ID_KEY, "test-conversation")
+                .context(PromptShieldAdvisor.SCOPE_ID_KEY, "test-conversation")
                 .build();
 
         // Obfuscate values to store tags

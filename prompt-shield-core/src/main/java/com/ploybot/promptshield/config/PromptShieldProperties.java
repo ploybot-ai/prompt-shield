@@ -16,6 +16,8 @@ public class PromptShieldProperties {
     private String tagOpen = "~";
     private String tagClose = "~";
     private boolean serviceKeysEnabled = true;
+    private boolean checksumValidationEnabled = true;
+    private String hmacSecret;
     private final Map<String, CustomTypeProperties> customTypes = new HashMap<>();
     private final AdvisorProperties advisor = new AdvisorProperties();
     private final ProxyProperties proxy = new ProxyProperties();
@@ -100,6 +102,27 @@ public class PromptShieldProperties {
 
     public void setServiceKeysEnabled(boolean serviceKeysEnabled) {
         this.serviceKeysEnabled = serviceKeysEnabled;
+    }
+
+    public boolean isChecksumValidationEnabled() {
+        return checksumValidationEnabled;
+    }
+
+    public void setChecksumValidationEnabled(boolean checksumValidationEnabled) {
+        this.checksumValidationEnabled = checksumValidationEnabled;
+    }
+
+    /**
+     * Secret key for the HMAC used to derive tag identifiers. If not set, a random
+     * per-instance key is generated at startup (tags then cannot be restored by a
+     * different instance or after a restart).
+     */
+    public String getHmacSecret() {
+        return hmacSecret;
+    }
+
+    public void setHmacSecret(String hmacSecret) {
+        this.hmacSecret = hmacSecret;
     }
 
     public Map<String, CustomTypeProperties> getCustomTypes() {

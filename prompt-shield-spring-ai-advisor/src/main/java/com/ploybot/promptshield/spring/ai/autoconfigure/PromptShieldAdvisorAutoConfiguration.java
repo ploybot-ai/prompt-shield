@@ -37,6 +37,9 @@ public class PromptShieldAdvisorAutoConfiguration {
         config.setTagOpen(properties.getTagOpen());
         config.setTagClose(properties.getTagClose());
         config.setStorageType(properties.getStorage().getType());
+        config.setServiceKeysEnabled(properties.isServiceKeysEnabled());
+        config.setChecksumValidationEnabled(properties.isChecksumValidationEnabled());
+        config.setHmacSecret(properties.getHmacSecret());
 
         for (var entry : properties.getCustomTypes().entrySet()) {
             config.addCustomType(entry.getKey(), entry.getValue().getPattern());

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 
@@ -92,23 +93,27 @@ class ProxyServiceTest {
     void testRestoreResponse() {
         ChatCompletionRequest request = new ChatCompletionRequest(
                 "gpt-4o-mini",
-                List.of(ChatMessage.user("Test"))
+                List.of(ChatMessage.user("Mi email es juan@example.com"))
         );
 
-        String emailTag = extractTag(engine.ofuscar("juan@example.com"));
-
-        when(aiClient.chatCompletion(any(), any())).thenReturn(new ChatCompletionResponse(
-                "chatcmpl-123",
-                "chat.completion",
-                System.currentTimeMillis(),
-                "gpt-4o-mini",
-                List.of(new ChatCompletionResponse.Choice(
-                        0,
-                        ChatMessage.assistant("Email sent to " + emailTag),
-                        "stop"
-                )),
-                new ChatCompletionResponse.Usage(10, 20, 30)
-        ));
+        // The model can only echo tags it saw in the obfuscated request, so the test
+        // captures the tag from what the proxy actually sends
+        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
+            ChatCompletionRequest captured = invocation.getArgument(0);
+            String emailTag = extractTag(captured.messages().get(1).content());
+            return new ChatCompletionResponse(
+                    "chatcmpl-123",
+                    "chat.completion",
+                    System.currentTimeMillis(),
+                    "gpt-4o-mini",
+                    List.of(new ChatCompletionResponse.Choice(
+                            0,
+                            ChatMessage.assistant("Email sent to " + emailTag),
+                            "stop"
+                    )),
+                    new ChatCompletionResponse.Usage(10, 20, 30)
+            );
+        });
 
         ChatCompletionResponse response = proxyService.chatCompletion(request, null);
 
@@ -124,31 +129,32 @@ class ProxyServiceTest {
     void testToolCallArgumentsRestored() {
         ChatCompletionRequest request = new ChatCompletionRequest(
                 "gpt-4o-mini",
-                List.of(ChatMessage.user("Send email"))
+                List.of(ChatMessage.user("Send email to user@test.com"))
         );
 
-        String emailTag = extractTag(engine.ofuscar("user@test.com"));
-
-        String toolArgs = "{\"to\":\"" + emailTag + "\",\"subject\":\"Hello\"}";
-        com.ploybot.promptshield.proxy.model.ToolCall toolCall = new com.ploybot.promptshield.proxy.model.ToolCall(
-                "call_123",
-                "function",
-                "sendEmail",
-                toolArgs
-        );
-
-        when(aiClient.chatCompletion(any(), any())).thenReturn(new ChatCompletionResponse(
-                "chatcmpl-123",
-                "chat.completion",
-                System.currentTimeMillis(),
-                "gpt-4o-mini",
-                List.of(new ChatCompletionResponse.Choice(
-                        0,
-                        ChatMessage.assistant("I'll send an email", List.of(toolCall)),
-                        "tool_calls"
-                )),
-                new ChatCompletionResponse.Usage(10, 20, 30)
-        ));
+        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
+            ChatCompletionRequest captured = invocation.getArgument(0);
+            String emailTag = extractTag(captured.messages().get(1).content());
+            String toolArgs = "{\"to\":\"" + emailTag + "\",\"subject\":\"Hello\"}";
+            com.ploybot.promptshield.proxy.model.ToolCall toolCall = new com.ploybot.promptshield.proxy.model.ToolCall(
+                    "call_123",
+                    "function",
+                    "sendEmail",
+                    toolArgs
+            );
+            return new ChatCompletionResponse(
+                    "chatcmpl-123",
+                    "chat.completion",
+                    System.currentTimeMillis(),
+                    "gpt-4o-mini",
+                    List.of(new ChatCompletionResponse.Choice(
+                            0,
+                            ChatMessage.assistant("I'll send an email", List.of(toolCall)),
+                            "tool_calls"
+                    )),
+                    new ChatCompletionResponse.Usage(10, 20, 30)
+            );
+        });
 
         ChatCompletionResponse response = proxyService.chatCompletion(request, null);
 
@@ -161,6 +167,42 @@ class ProxyServiceTest {
                 "Tool call arguments should contain restored email, but got: " + restoredArgs);
         assertFalse(engine.containsTags(restoredArgs),
                 "Tool call arguments should not contain obfuscated tags, but got: " + restoredArgs);
+    }
+
+    @Test
+    void testStreamingTagSplitAcrossChunksIsRestored() {
+        ChatCompletionRequest request = new ChatCompletionRequest(
+                "gpt-4o-mini",
+                List.of(ChatMessage.user("Mi email es juan@example.com"))
+        );
+
+        when(aiClient.chatCompletionStream(any(), any())).thenAnswer(invocation -> {
+            ChatCompletionRequest captured = invocation.getArgument(0);
+            String tag = extractTag(captured.messages().get(1).content());
+            int middle = tag.length() / 2;
+            return Flux.just(
+                    streamChunk("Email: " + tag.substring(0, middle)),
+                    streamChunk(tag.substring(middle)),
+                    streamChunk(" listo"));
+        });
+
+        String text = proxyService.chatCompletionStream(request, null)
+                .flatMapIterable(ChatCompletionResponse::choices)
+                .map(ChatCompletionResponse.Choice::message)
+                .map(ChatMessage::content)
+                .collectList()
+                .map(parts -> String.join("", parts))
+                .block();
+
+        assertEquals("Email: juan@example.com listo", text);
+    }
+
+    private ChatCompletionResponse streamChunk(String content) {
+        return new ChatCompletionResponse(
+                "chatcmpl-stream", "chat.completion.chunk", System.currentTimeMillis(),
+                "gpt-4o-mini",
+                List.of(new ChatCompletionResponse.Choice(0, ChatMessage.assistant(content), null)),
+                null);
     }
 
     @Test
@@ -231,6 +273,37 @@ class ProxyServiceTest {
         String content = response.choices().get(0).message().content();
         assertTrue(engine.containsTags(content),
                 "Response should contain obfuscated tags when restore is disabled");
+    }
+
+    @Test
+    void testTagsFromAnotherRequestAreNotRestored() {
+        // Tags minted for one proxied request must not be restorable in another:
+        // otherwise a prompt injection could exfiltrate other users' data
+        String foreignTag = extractTag(engine.forScope("other-user").obfuscate("victima@example.com"));
+
+        ChatCompletionRequest request = new ChatCompletionRequest(
+                "gpt-4o-mini",
+                List.of(ChatMessage.user("Hola"))
+        );
+
+        when(aiClient.chatCompletion(any(), any())).thenReturn(new ChatCompletionResponse(
+                "chatcmpl-123",
+                "chat.completion",
+                System.currentTimeMillis(),
+                "gpt-4o-mini",
+                List.of(new ChatCompletionResponse.Choice(
+                        0,
+                        ChatMessage.assistant("Datos: " + foreignTag),
+                        "stop"
+                )),
+                new ChatCompletionResponse.Usage(10, 20, 30)
+        ));
+
+        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
+
+        String content = response.choices().get(0).message().content();
+        assertFalse(content.contains("victima@example.com"),
+                "a tag from another request must never be restored, but got: " + content);
     }
 
     @Test

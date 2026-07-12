@@ -1,5 +1,9 @@
 package com.ploybot.promptshield.registry;
 
+import com.ploybot.promptshield.validation.ChecksumValidators;
+
+import java.util.function.Predicate;
+
 public enum SensitiveDataType {
 
     ANTHROPIC_API_KEY("ANTHROPIC_API_KEY", "sk-ant-[A-Za-z0-9_-]{20,}", true),
@@ -18,21 +22,27 @@ public enum SensitiveDataType {
     TWILIO_API_KEY("TWILIO_API_KEY", "SK[0-9a-fA-F]{32}", true),
     SENDGRID_KEY("SENDGRID_KEY", "SG\\.[A-Za-z0-9_-]{22}\\.[A-Za-z0-9_-]{43}", true),
     MAILGUN_API_KEY("MAILGUN_API_KEY", "key-[0-9a-zA-Z]{32}", true),
-    DNI("DNI", "\\d{8}[A-Za-z]", false),
-    NIE("NIE", "[XYZxyz]\\d{7}[A-Za-z]", false),
+    DNI("DNI", "\\d{8}[A-Za-z]", false, ChecksumValidators::isValidDni),
+    NIE("NIE", "[XYZxyz]\\d{7}[A-Za-z]", false, ChecksumValidators::isValidNie),
     EMAIL("EMAIL", "[\\w.+-]+@[\\w.-]+\\.\\w{2,}", false),
-    N_CUENTA("N_CUENTA", "ES\\d{22}", false),
+    N_CUENTA("N_CUENTA", "ES\\d{22}", false, ChecksumValidators::isValidIban),
     TELEFONO("TELEFONO", "\\b\\d{9}\\b", false),
     CODIGO_POSTAL("CODIGO_POSTAL", "\\b\\d{5}\\b", false);
 
     private final String typeName;
     private final String pattern;
     private final boolean serviceKey;
+    private final Predicate<String> validator;
 
     SensitiveDataType(String typeName, String pattern, boolean serviceKey) {
+        this(typeName, pattern, serviceKey, null);
+    }
+
+    SensitiveDataType(String typeName, String pattern, boolean serviceKey, Predicate<String> validator) {
         this.typeName = typeName;
         this.pattern = pattern;
         this.serviceKey = serviceKey;
+        this.validator = validator;
     }
 
     public String getTypeName() {
@@ -45,5 +55,13 @@ public enum SensitiveDataType {
 
     public boolean isServiceKey() {
         return serviceKey;
+    }
+
+    /**
+     * Optional checksum validator applied on top of the regex match, or {@code null}
+     * if the type has no verifiable control digit.
+     */
+    public Predicate<String> getValidator() {
+        return validator;
     }
 }
