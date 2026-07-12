@@ -1,5 +1,9 @@
 package com.ploybot.promptshield.model;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.Objects;
 
 public class ObfuscationTag {
@@ -8,7 +12,11 @@ public class ObfuscationTag {
     private final String hash;
     private final String originalValue;
 
-    public ObfuscationTag(String type, String hash, String originalValue) {
+    @JsonCreator
+    public ObfuscationTag(
+            @JsonProperty("type") String type,
+            @JsonProperty("hash") String hash,
+            @JsonProperty("originalValue") String originalValue) {
         this.type = type;
         this.hash = hash;
         this.originalValue = originalValue;
@@ -26,6 +34,7 @@ public class ObfuscationTag {
         return originalValue;
     }
 
+    @JsonIgnore
     public String getTag() {
         return "<" + type + "_" + hash + ">";
     }

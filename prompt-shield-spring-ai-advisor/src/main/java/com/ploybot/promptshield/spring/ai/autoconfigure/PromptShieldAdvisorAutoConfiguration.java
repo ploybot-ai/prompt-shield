@@ -6,14 +6,14 @@ import com.ploybot.promptshield.model.ObfuscationConfig;
 import com.ploybot.promptshield.spring.ai.advisor.PromptShieldAdvisor;
 import com.ploybot.promptshield.storage.InMemoryStorageService;
 import com.ploybot.promptshield.storage.StorageService;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 
-@Configuration
+@AutoConfiguration
 @ConditionalOnClass({ObfuscationEngine.class, PromptShieldAdvisor.class})
 @ConditionalOnProperty(prefix = "prompt-shield.advisor", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(PromptShieldProperties.class)
@@ -36,7 +36,7 @@ public class PromptShieldAdvisorAutoConfiguration {
         config.setTagSeparator(properties.getTagSeparator());
         config.setTagOpen(properties.getTagOpen());
         config.setTagClose(properties.getTagClose());
-        config.setStorageType(properties.getStorageType());
+        config.setStorageType(properties.getStorage().getType());
 
         for (var entry : properties.getCustomTypes().entrySet()) {
             config.addCustomType(entry.getKey(), entry.getValue().getPattern());
@@ -46,7 +46,8 @@ public class PromptShieldAdvisorAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(StorageService.class)
+    @ConditionalOnProperty(prefix = "prompt-shield.storage", name = "type", havingValue = "memory", matchIfMissing = true)
     public StorageService promptShieldStorageService() {
         return new InMemoryStorageService();
     }

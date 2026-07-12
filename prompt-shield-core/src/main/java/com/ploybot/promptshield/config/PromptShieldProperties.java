@@ -11,7 +11,6 @@ public class PromptShieldProperties {
     private boolean enabled = true;
     private String hashAlgorithm = "SHA-256";
     private int hashLength = 6;
-    private String storageType = "memory";
     private String redactedPrefix = "REDACTED";
     private String tagSeparator = "#";
     private String tagOpen = "~";
@@ -46,12 +45,21 @@ public class PromptShieldProperties {
         this.hashLength = hashLength;
     }
 
+    /**
+     * @deprecated use {@code prompt-shield.storage.type} instead. Note that only the
+     * nested property activates the Redis/JPA storage auto-configurations.
+     */
+    @Deprecated
     public String getStorageType() {
-        return storageType;
+        return storage.getType();
     }
 
+    /**
+     * @deprecated use {@code prompt-shield.storage.type} instead.
+     */
+    @Deprecated
     public void setStorageType(String storageType) {
-        this.storageType = storageType;
+        storage.setType(storageType);
     }
 
     public String getRedactedPrefix() {

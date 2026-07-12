@@ -7,11 +7,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -37,6 +40,24 @@ class RedisStorageServiceTest {
         lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
     }
 
+    @SuppressWarnings("unchecked")
+    private void mockScan(String... keys) {
+        Cursor<String> cursor = mock(Cursor.class);
+        Boolean[] hasNextTail = new Boolean[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            hasNextTail[i] = i < keys.length - 1;
+        }
+        if (keys.length == 0) {
+            when(cursor.hasNext()).thenReturn(false);
+        } else {
+            when(cursor.hasNext()).thenReturn(true, hasNextTail);
+            String[] tail = new String[keys.length - 1];
+            System.arraycopy(keys, 1, tail, 0, keys.length - 1);
+            when(cursor.next()).thenReturn(keys[0], tail);
+        }
+        when(redisTemplate.scan(any(ScanOptions.class))).thenReturn(cursor);
+    }
+
     @Test
     void testStore() throws Exception {
         // Arrange
@@ -49,7 +70,7 @@ class RedisStorageServiceTest {
         storageService.store(hash, tag);
 
         // Assert
-        verify(valueOperations).set(eq("prompt-shield:tag:abc123"), eq(json), eq(24L), eq(TimeUnit.HOURS));
+        verify(valueOperations).set(eq("prompt-shield:tag:abc123"), eq(json), eq(Duration.ofHours(24)));
     }
 
     @Test
@@ -58,7 +79,7 @@ class RedisStorageServiceTest {
         String hash = "abc123";
         String json = "{\"type\":\"DNI\",\"hash\":\"abc123\",\"originalValue\":\"12345678Z\"}";
         ObfuscationTag expectedTag = new ObfuscationTag("DNI", "abc123", "12345678Z");
-        
+
         when(valueOperations.get("prompt-shield:tag:abc123")).thenReturn(json);
         when(objectMapper.readValue(json, ObfuscationTag.class)).thenReturn(expectedTag);
 
@@ -124,19 +145,19 @@ class RedisStorageServiceTest {
     @Test
     void testClear() {
         // Arrange
-        when(redisTemplate.keys("prompt-shield:*")).thenReturn(java.util.Set.of("key1", "key2"));
+        mockScan("key1", "key2");
 
         // Act
         storageService.clear();
 
         // Assert
-        verify(redisTemplate).delete(java.util.Set.of("key1", "key2"));
+        verify(redisTemplate).delete(List.of("key1", "key2"));
     }
 
     @Test
     void testClearNoKeys() {
         // Arrange
-        when(redisTemplate.keys("prompt-shield:*")).thenReturn(java.util.Collections.emptySet());
+        mockScan();
 
         // Act
         storageService.clear();
@@ -148,7 +169,7 @@ class RedisStorageServiceTest {
     @Test
     void testSize() {
         // Arrange
-        when(redisTemplate.keys("prompt-shield:tag:*")).thenReturn(java.util.Set.of("key1", "key2", "key3"));
+        mockScan("key1", "key2", "key3");
 
         // Act
         long result = storageService.size();
@@ -160,7 +181,7 @@ class RedisStorageServiceTest {
     @Test
     void testSizeNoKeys() {
         // Arrange
-        when(redisTemplate.keys("prompt-shield:tag:*")).thenReturn(null);
+        mockScan();
 
         // Act
         long result = storageService.size();

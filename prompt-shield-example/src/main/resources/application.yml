@@ -25,7 +25,8 @@ prompt-shield:
   enabled: true
   hash-algorithm: SHA-256
   hash-length: 6
-  storage-type: memory
+  storage:
+    type: memory
   redacted-prefix: "REDACTED"
   tag-separator: "#"
   tag-open: "~"
