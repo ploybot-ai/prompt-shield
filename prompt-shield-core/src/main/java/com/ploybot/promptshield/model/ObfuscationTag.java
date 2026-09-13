@@ -34,6 +34,12 @@ public class ObfuscationTag {
         return originalValue;
     }
 
+    /**
+     * @deprecated since 1.4.0: this legacy {@code <TYPE_hash>} form is not the tag that
+     * appears in obfuscated text, which depends on the configured delimiters. Use
+     * {@code ObfuscationEngine#formatTag(ObfuscationTag)} instead.
+     */
+    @Deprecated(since = "1.4.0")
     @JsonIgnore
     public String getTag() {
         return "<" + type + "_" + hash + ">";
@@ -56,7 +62,7 @@ public class ObfuscationTag {
     public String toString() {
         return "ObfuscationTag{" +
                 "type='" + type + '\'' +
-                "tag='" + getTag() + '\'' +
+                ", hash='" + hash + '\'' +
                 '}';
     }
 }

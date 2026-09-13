@@ -130,6 +130,39 @@ class ObfuscationScopeTest {
         executor.shutdownNow();
     }
 
+    @Test
+    void removeCreatedMappingsReleasesOnlyWhatTheInstanceCreated() {
+        InMemoryStorageService storage = new InMemoryStorageService();
+        ObfuscationEngine engine = new ObfuscationEngine(new ObfuscationConfig(), storage);
+
+        // An earlier request of the same conversation already mapped the DNI
+        ObfuscationScope earlier = engine.forScope("conv-1");
+        String dniTag = earlier.obfuscate("12345678Z");
+
+        ObfuscationScope request = engine.forScope("conv-1");
+        String obfuscated = request.obfuscate("DNI 12345678Z, email juan@example.com");
+        assertEquals(2, storage.size());
+
+        assertEquals(1, request.removeCreatedMappings(), "only the email mapping was created by this request");
+        assertEquals(0, request.removeCreatedMappings(), "a second call has nothing left to remove");
+        assertEquals("12345678Z", earlier.restore(dniTag), "the pre-existing mapping must survive");
+        assertTrue(request.restore(obfuscated).contains("~REDACTED:EMAIL#"));
+    }
+
+    @Test
+    void ephemeralScopesDoNotAccumulateWhenReleased() {
+        InMemoryStorageService storage = new InMemoryStorageService();
+        ObfuscationEngine engine = new ObfuscationEngine(new ObfuscationConfig(), storage);
+
+        for (int i = 0; i < 1_000; i++) {
+            ObfuscationScope scope = engine.forScope("request-" + i);
+            scope.restore(scope.obfuscate("dni 12345678Z mail a@b.com"));
+            scope.removeCreatedMappings();
+        }
+
+        assertEquals(0, storage.size());
+    }
+
     private String scope(ObfuscationScope scope, String text) {
         String obfuscated = scope.obfuscate(text);
         assertNotEquals(text, obfuscated);

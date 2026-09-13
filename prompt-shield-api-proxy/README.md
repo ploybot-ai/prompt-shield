@@ -4,11 +4,12 @@ OpenAI-compatible API proxy with automatic PII obfuscation. Protect sensitive da
 
 ## Features
 
-- **Transparent proxy**: Client sends API key and model, proxy forwards to provider
+- **Transparent proxy**: Forwards the raw request, so every OpenAI field (`top_p`, `response_format`, images...) is kept
+- **Access control**: Proxy tokens, or the client's own provider key
 - **Automatic obfuscation**: DNI, NIE, email, phone and custom types are obfuscated
 - **Automatic restoration**: Original values are restored in the AI response
-- **Tool call support**: Tool call arguments are also obfuscated/restored
-- **Streaming support**: Server-Sent Events (SSE) for streaming responses
+- **Tool call support**: Tool call arguments and tool results are obfuscated; arguments are restored
+- **Streaming support**: Server-Sent Events, including tags and tool arguments split across chunks
 - **Any provider**: Works with OpenAI, Ollama, Azure, LM Studio, vLLM, etc.
 
 ## Quick Start
@@ -39,12 +40,14 @@ docker-compose up
 mvn clean package -DskipTests -pl prompt-shield-api-proxy -am
 
 # Run
-java -jar target/prompt-shield-api-proxy-1.0.1-SNAPSHOT.jar --server.port=8081
+java -jar prompt-shield-api-proxy/target/prompt-shield-api-proxy-*.jar --server.port=8081
 ```
 
 ## How It Works
 
-The proxy is **transparent** - it doesn't store API keys or models. The client sends everything:
+The proxy forwards the client's request as is, except for the obfuscated text. Each
+request gets its own scope, released once the response has been restored, so a tag can
+never be restored into another client's response.
 
 ```
 Client → Proxy → Provider
@@ -58,10 +61,10 @@ Client → Proxy → Provider
   ←────────┘
 ```
 
-1. Client sends request with `Authorization: Bearer sk-xxx` header
-2. Proxy extracts API key from header
+1. Client sends the request with `Authorization: Bearer <key or proxy token>`
+2. Proxy checks the token (see [Access control](#access-control))
 3. Proxy obfuscates PII in messages (DNI, email, phone, etc.)
-4. Proxy forwards request to provider with client's API key
+4. Proxy forwards the request to the provider
 5. Provider responds with obfuscated placeholders
 6. Proxy restores original values in response
 7. Client receives response with real data
@@ -130,18 +133,19 @@ curl http://localhost:8080/v1/health
 
 | Type | Pattern | Example |
 |------|---------|---------|
-| DNI | `\d{8}[A-Za-z]` | 12345678Z |
-| NIE | `[XYZxyz]\d{7}[A-Za-z]` | X1234567A |
+| DNI | 8 digits (optionally `12.345.678`) + optional `-` + letter, checksum | 12345678Z |
+| NIE | `X`/`Y`/`Z` + 7 digits + letter, optional hyphens, checksum | X1234567L |
 | EMAIL | `[\w.+-]+@[\w.-]+\.\w{2,}` | user@email.com |
-| TELEFONO | `\b\d{9}\b` | 612345678 |
+| N_CUENTA | Spanish IBAN, compact or grouped, checksum | ES91 2100 0418 4502 0005 1332 |
+| IBAN | Any other IBAN, checksum | DE89 3704 0044 0532 0130 00 |
+| TELEFONO | Spanish phone with spaces, hyphens or `+34`, or any 9 digits | +34 612 34 56 78 |
 | CODIGO_POSTAL | `\b\d{5}\b` | 28001 |
-| N_CUENTA | `ES\d{22}` | ES1234567890123456789012 |
 
 ### Service Keys (API Keys)
 
 | Type | Pattern | Example |
 |------|---------|---------|
-| OPENAI_API_KEY | `sk-proj-[A-Za-z0-9_-]{20,}` | sk-proj-abc123... |
+| OPENAI_API_KEY | `sk-` (optionally `proj-`, `svcacct-`, `admin-`) + 20 or more characters including a digit | sk-proj-abc123... |
 | ANTHROPIC_API_KEY | `sk-ant-[A-Za-z0-9_-]{20,}` | sk-ant-api03-... |
 | GOOGLE_AI_KEY | `AIza[A-Za-z0-9_-]{35}` | AIzaSyA1b2C3d4... |
 | HUGGINGFACE_TOKEN | `hf_[A-Za-z0-9]{34}` | hf_abc123... |
@@ -190,23 +194,40 @@ curl -X POST http://localhost:8080/v1/chat/completions \
   }'
 ```
 
+## Access control
+
+| Configuration | Who can use the proxy | Key sent to the provider |
+|---------------|-----------------------|--------------------------|
+| `client-tokens` set | Clients sending one of the tokens | `provider.api-key` |
+| No tokens, client sends `Authorization` | Anyone | The client's own header |
+| No tokens, no header, `provider.api-key` set | Nobody (401) unless `allow-unauthenticated: true` | `provider.api-key` |
+| No tokens, no header, no provider key | Anyone | None (local providers) |
+
+Never enable `allow-unauthenticated` on a proxy reachable from outside a trusted network:
+anyone could spend the server key.
+
 ## Configuration
 
-All properties are optional. The proxy works with zero configuration.
+All properties are optional. The standalone proxy enables its endpoints; when the module
+is added to another application they stay off until `prompt-shield.proxy.enabled=true`.
 
 ```yaml
 # application.yml
 prompt-shield:
   service-keys-enabled: true   # false to disable service key detection
+  storage:
+    memory:
+      ttl-hours: 24
   proxy:
     enabled: true
     base-path: /v1
     inject-system-prompt: true
     restore-on-response: true
+    client-tokens: []
+    allow-unauthenticated: false
     provider:
-      base-url: https://api.openai.com  # Default provider
-      api-key:                           # Optional default key
-      model: gpt-4o-mini                 # Optional default model
+      base-url: https://api.openai.com
+      api-key:                  # server-side key, used with client-tokens
 ```
 
 ### Environment Variables
@@ -214,9 +235,10 @@ prompt-shield:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PROMPT_SHIELD_PROXY_PROVIDER_BASE_URL` | Provider URL | `https://api.openai.com` |
-| `PROMPT_SHIELD_PROXY_PROVIDER_API_KEY` | Default API key | - |
-| `PROMPT_SHIELD_PROXY_PROVIDER_MODEL` | Default model | `gpt-4o-mini` |
-| `PROMPT_SHIELD_PROXY_ENABLED` | Enable proxy | `true` |
+| `PROMPT_SHIELD_PROXY_PROVIDER_API_KEY` | Server-side provider key | - |
+| `PROMPT_SHIELD_PROXY_CLIENT_TOKENS` | Comma-separated proxy tokens | - |
+| `PROMPT_SHIELD_PROXY_ALLOW_UNAUTHENTICATED` | Anonymous use of the server key | `false` |
+| `PROMPT_SHIELD_PROXY_ENABLED` | Enable proxy endpoints | `true` (standalone) |
 | `PROMPT_SHIELD_PROXY_INJECT_SYSTEM_PROMPT` | Inject obfuscation instructions | `true` |
 | `PROMPT_SHIELD_PROXY_RESTORE_ON_RESPONSE` | Restore values in response | `true` |
 | `PROMPT_SHIELD_SERVICE_KEYS_ENABLED` | Enable service key detection | `true` |

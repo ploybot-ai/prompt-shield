@@ -200,6 +200,69 @@ class ObfuscationEngineTest {
     }
 
     @Test
+    void ofuscarJsonConNumerosYClaves() {
+        ObfuscationScope scope = engine.forScope("conv-1");
+        String json = "{\"telefono\":612345678,\"importe\":120.5,\"contactos\":{\"juan@email.com\":true}}";
+        String ofuscado = scope.obfuscateJson(json, true);
+
+        assertFalse(ofuscado.contains("612345678"), "a phone number stored as a JSON number must be obfuscated");
+        assertFalse(ofuscado.contains("juan@email.com"), "object keys must be obfuscated");
+        assertTrue(ofuscado.contains("120.5"), "numbers without sensitive data stay numbers");
+
+        String restaurado = scope.restoreJson(ofuscado);
+        assertEquals("{\"telefono\":\"612345678\",\"importe\":120.5,\"contactos\":{\"juan@email.com\":true}}", restaurado);
+    }
+
+    @Test
+    void ofuscarJsonPorDefectoNoTocaNumerosNiClaves() {
+        // Amounts and ids must not become CODIGO_POSTAL / TELEFONO tags
+        String json = "{\"total\":12000,\"id\":123456789,\"12345\":\"x\",\"email\":\"juan@email.com\"}";
+        String ofuscado = engine.ofuscarObjetoJson(json);
+
+        assertTrue(ofuscado.startsWith("{\"total\":12000,\"id\":123456789,\"12345\":\"x\",\"email\":\"~REDACTED:EMAIL#"));
+    }
+
+    @Test
+    void restaurarObjetoConNumeroOfuscado() {
+        Contacto original = new Contacto("juan@email.com", 612345678L);
+        String ofuscado = engine.ofuscarObjeto(original);
+
+        assertFalse(ofuscado.contains("612345678"));
+        Contacto restaurado = engine.restaurarObjeto(ofuscado, Contacto.class);
+        assertEquals(original.getEmail(), restaurado.getEmail());
+        assertEquals(original.getTelefono(), restaurado.getTelefono());
+    }
+
+    @Test
+    void restaurarObjetoConComillasEnElValor() {
+        ObfuscationConfig config = new ObfuscationConfig();
+        config.addCustomType("CODIGO", "COD\"[0-9]{3}");
+        ObfuscationEngine custom = new ObfuscationEngine(config, new InMemoryStorageService());
+
+        Persona persona = new Persona("COD\"123", "12345678Z", "612345678", "juan@email.com");
+        Persona restaurado = custom.restaurarObjeto(custom.ofuscarObjeto(persona), Persona.class);
+
+        assertEquals("COD\"123", restaurado.getNombre(), "values with JSON special characters must round-trip");
+    }
+
+    public static class Contacto {
+        private String email;
+        private Long telefono;
+
+        public Contacto() {}
+
+        public Contacto(String email, Long telefono) {
+            this.email = email;
+            this.telefono = telefono;
+        }
+
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+        public Long getTelefono() { return telefono; }
+        public void setTelefono(Long telefono) { this.telefono = telefono; }
+    }
+
+    @Test
     void prefijoConfigurable() {
         ObfuscationConfig config = new ObfuscationConfig();
         config.setRedactedPrefix("OBFUSCADO");

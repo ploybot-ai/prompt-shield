@@ -1,8 +1,11 @@
 package com.ploybot.promptshield.config;
 
+import com.ploybot.promptshield.model.ObfuscationConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @ConfigurationProperties(prefix = "prompt-shield")
@@ -18,10 +21,35 @@ public class PromptShieldProperties {
     private boolean serviceKeysEnabled = true;
     private boolean checksumValidationEnabled = true;
     private String hmacSecret;
-    private final Map<String, CustomTypeProperties> customTypes = new HashMap<>();
+    /**
+     * Custom detectable types, evaluated after the built-in ones in declaration order.
+     * Names must match {@code [A-Z][A-Z0-9_]*}; write names containing underscores
+     * with bracket notation ({@code "[N_CUENTA]"}) so the binder keeps them.
+     */
+    private final Map<String, CustomTypeProperties> customTypes = new LinkedHashMap<>();
     private final AdvisorProperties advisor = new AdvisorProperties();
     private final ProxyProperties proxy = new ProxyProperties();
     private final StorageProperties storage = new StorageProperties();
+
+    /** Builds the engine configuration from these properties. */
+    public ObfuscationConfig toObfuscationConfig() {
+        ObfuscationConfig config = new ObfuscationConfig();
+        config.setHashAlgorithm(hashAlgorithm);
+        config.setHashLength(hashLength);
+        config.setStorageType(storage.getType());
+        config.setEnabled(enabled);
+        config.setRedactedPrefix(redactedPrefix);
+        config.setTagSeparator(tagSeparator);
+        config.setTagOpen(tagOpen);
+        config.setTagClose(tagClose);
+        config.setServiceKeysEnabled(serviceKeysEnabled);
+        config.setChecksumValidationEnabled(checksumValidationEnabled);
+        config.setHmacSecret(hmacSecret);
+        for (Map.Entry<String, CustomTypeProperties> entry : customTypes.entrySet()) {
+            config.addCustomType(entry.getKey(), entry.getValue().getPattern());
+        }
+        return config;
+    }
 
     public boolean isEnabled() {
         return enabled;
@@ -159,6 +187,26 @@ public class PromptShieldProperties {
         private boolean restoreOnResponse = true;
         private boolean injectSystemPrompt = true;
         private String systemPrompt;
+        /** Obfuscate the application's system prompt text (it often carries user context). */
+        private boolean obfuscateSystemMessages = true;
+        /** Obfuscate tool results before they reach the model. */
+        private boolean obfuscateToolResponses = true;
+
+        public boolean isObfuscateSystemMessages() {
+            return obfuscateSystemMessages;
+        }
+
+        public void setObfuscateSystemMessages(boolean obfuscateSystemMessages) {
+            this.obfuscateSystemMessages = obfuscateSystemMessages;
+        }
+
+        public boolean isObfuscateToolResponses() {
+            return obfuscateToolResponses;
+        }
+
+        public void setObfuscateToolResponses(boolean obfuscateToolResponses) {
+            this.obfuscateToolResponses = obfuscateToolResponses;
+        }
 
         public boolean isEnabled() {
             return enabled;
@@ -202,11 +250,41 @@ public class PromptShieldProperties {
     }
 
     public static class ProxyProperties {
-        private boolean enabled = true;
+        /**
+         * Registers the OpenAI-compatible proxy endpoints. Off by default so adding the
+         * module to an application never exposes them unintentionally.
+         */
+        private boolean enabled = false;
         private String basePath = "/v1";
         private boolean injectSystemPrompt = true;
         private boolean restoreOnResponse = true;
+        /**
+         * Tokens clients must send as {@code Authorization: Bearer <token>}. When set,
+         * the provider API key is used upstream and client tokens are never forwarded.
+         */
+        private List<String> clientTokens = new ArrayList<>();
+        /**
+         * Lets requests without an Authorization header use the provider API key when no
+         * client tokens are configured. Only enable it on a trusted, private network.
+         */
+        private boolean allowUnauthenticated = false;
         private final ProviderProperties provider = new ProviderProperties();
+
+        public List<String> getClientTokens() {
+            return clientTokens;
+        }
+
+        public void setClientTokens(List<String> clientTokens) {
+            this.clientTokens = clientTokens;
+        }
+
+        public boolean isAllowUnauthenticated() {
+            return allowUnauthenticated;
+        }
+
+        public void setAllowUnauthenticated(boolean allowUnauthenticated) {
+            this.allowUnauthenticated = allowUnauthenticated;
+        }
 
         public boolean isEnabled() {
             return enabled;
@@ -277,6 +355,7 @@ public class PromptShieldProperties {
 
     public static class StorageProperties {
         private String type = "memory";
+        private final MemoryProperties memory = new MemoryProperties();
         private final JpaProperties jpa = new JpaProperties();
         private final RedisProperties redis = new RedisProperties();
 
@@ -288,6 +367,10 @@ public class PromptShieldProperties {
             this.type = type;
         }
 
+        public MemoryProperties getMemory() {
+            return memory;
+        }
+
         public JpaProperties getJpa() {
             return jpa;
         }
@@ -296,9 +379,34 @@ public class PromptShieldProperties {
             return redis;
         }
 
-        public static class JpaProperties {
+        public static class MemoryProperties {
+            /** Hours a mapping is kept since it was last used; 0 keeps mappings forever. */
             private long ttlHours = 24;
+
+            public long getTtlHours() {
+                return ttlHours;
+            }
+
+            public void setTtlHours(long ttlHours) {
+                this.ttlHours = ttlHours;
+            }
+        }
+
+        public enum SchemaInitialization {
+            /** Create the table only on embedded databases (H2, HSQLDB, Derby). */
+            EMBEDDED,
+            ALWAYS,
+            NEVER
+        }
+
+        public static class JpaProperties {
+            /** Hours a mapping is kept since it was last used. */
+            private long ttlHours = 24;
+            /** Periodically deletes expired mappings. */
             private boolean cleanupEnabled = true;
+            private long cleanupIntervalMinutes = 60;
+            /** When to run {@code CREATE TABLE IF NOT EXISTS} for the mappings table. */
+            private SchemaInitialization initializeSchema = SchemaInitialization.EMBEDDED;
 
             public long getTtlHours() {
                 return ttlHours;
@@ -314,6 +422,22 @@ public class PromptShieldProperties {
 
             public void setCleanupEnabled(boolean cleanupEnabled) {
                 this.cleanupEnabled = cleanupEnabled;
+            }
+
+            public long getCleanupIntervalMinutes() {
+                return cleanupIntervalMinutes;
+            }
+
+            public void setCleanupIntervalMinutes(long cleanupIntervalMinutes) {
+                this.cleanupIntervalMinutes = cleanupIntervalMinutes;
+            }
+
+            public SchemaInitialization getInitializeSchema() {
+                return initializeSchema;
+            }
+
+            public void setInitializeSchema(SchemaInitialization initializeSchema) {
+                this.initializeSchema = initializeSchema;
             }
         }
 

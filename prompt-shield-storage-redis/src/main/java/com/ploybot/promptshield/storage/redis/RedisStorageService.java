@@ -26,7 +26,14 @@ public class RedisStorageService implements StorageService {
     private final ObjectMapper objectMapper;
     private final long ttlHours;
 
+    /**
+     * @param ttlHours hours a mapping is kept since it was last stored or reused; must be
+     *                 positive
+     */
     public RedisStorageService(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, long ttlHours) {
+        if (ttlHours <= 0) {
+            throw new IllegalArgumentException("prompt-shield.storage.redis.ttl-hours must be greater than zero");
+        }
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.ttlHours = ttlHours;
@@ -34,11 +41,45 @@ public class RedisStorageService implements StorageService {
 
     @Override
     public void store(String hash, ObfuscationTag tag) {
+        String key = TAG_KEY_PREFIX + hash;
+        redisTemplate.opsForValue().set(key, serialize(hash, tag), ttl());
+        logger.debug("Stored obfuscation tag for hash: {}", hash);
+    }
+
+    /**
+     * Atomic across application instances ({@code SET key value NX EX ttl}), so two
+     * instances can never overwrite each other's mapping for a colliding id.
+     */
+    @Override
+    public Optional<ObfuscationTag> storeIfAbsent(String hash, ObfuscationTag tag) {
+        String key = TAG_KEY_PREFIX + hash;
+        String json = serialize(hash, tag);
+        // Retry covers the mapping expiring between a failed SET NX and the read
+        for (int attempt = 0; attempt < 3; attempt++) {
+            if (Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(key, json, ttl()))) {
+                logger.debug("Stored obfuscation tag for hash: {}", hash);
+                return Optional.empty();
+            }
+            Optional<ObfuscationTag> existing = retrieve(hash);
+            if (existing.isPresent()) {
+                return existing;
+            }
+        }
+        throw new IllegalStateException("Could not store obfuscation tag for hash: " + hash);
+    }
+
+    @Override
+    public void refresh(String hash) {
+        redisTemplate.expire(TAG_KEY_PREFIX + hash, ttl());
+    }
+
+    private Duration ttl() {
+        return Duration.ofHours(ttlHours);
+    }
+
+    private String serialize(String hash, ObfuscationTag tag) {
         try {
-            String json = objectMapper.writeValueAsString(tag);
-            String key = TAG_KEY_PREFIX + hash;
-            redisTemplate.opsForValue().set(key, json, Duration.ofHours(ttlHours));
-            logger.debug("Stored obfuscation tag for hash: {}", hash);
+            return objectMapper.writeValueAsString(tag);
         } catch (JsonProcessingException e) {
             logger.error("Failed to serialize obfuscation tag for hash: {}", hash, e);
             throw new RuntimeException("Failed to store obfuscation tag", e);

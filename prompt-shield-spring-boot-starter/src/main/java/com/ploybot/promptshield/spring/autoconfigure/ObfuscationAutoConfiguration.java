@@ -3,15 +3,17 @@ package com.ploybot.promptshield.spring.autoconfigure;
 import com.ploybot.promptshield.config.PromptShieldProperties;
 import com.ploybot.promptshield.engine.ObfuscationEngine;
 import com.ploybot.promptshield.model.ObfuscationConfig;
+import com.ploybot.promptshield.spring.interceptor.ObfuscationInterceptor;
 import com.ploybot.promptshield.storage.InMemoryStorageService;
 import com.ploybot.promptshield.storage.StorageService;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+
+import java.time.Duration;
 
 @AutoConfiguration
 @ConditionalOnClass(ObfuscationEngine.class)
@@ -28,37 +30,32 @@ public class ObfuscationAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public ObfuscationConfig obfuscationConfig() {
-        ObfuscationConfig config = new ObfuscationConfig();
-        config.setHashAlgorithm(properties.getHashAlgorithm());
-        config.setHashLength(properties.getHashLength());
-        config.setStorageType(properties.getStorage().getType());
-        config.setEnabled(properties.isEnabled());
-        config.setRedactedPrefix(properties.getRedactedPrefix());
-        config.setTagSeparator(properties.getTagSeparator());
-        config.setTagOpen(properties.getTagOpen());
-        config.setTagClose(properties.getTagClose());
-        config.setServiceKeysEnabled(properties.isServiceKeysEnabled());
-        config.setChecksumValidationEnabled(properties.isChecksumValidationEnabled());
-        config.setHmacSecret(properties.getHmacSecret());
-
-        for (var entry : properties.getCustomTypes().entrySet()) {
-            config.addCustomType(entry.getKey(), entry.getValue().getPattern());
-        }
-
-        return config;
+        return properties.toObfuscationConfig();
     }
 
     @Bean
     @ConditionalOnMissingBean(StorageService.class)
     @ConditionalOnProperty(prefix = "prompt-shield.storage", name = "type", havingValue = "memory", matchIfMissing = true)
-    @Qualifier("promptShieldStorageService")
     public StorageService promptShieldStorageService() {
-        return new InMemoryStorageService();
+        return new InMemoryStorageService(Duration.ofHours(properties.getStorage().getMemory().getTtlHours()));
+    }
+
+    /**
+     * Uses the single {@link StorageService} in the context, whatever its bean name; if
+     * there are several, the one named {@code promptShieldStorageService} or marked
+     * {@code @Primary} wins.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ObfuscationEngine obfuscationEngine(ObfuscationConfig config, StorageService promptShieldStorageService) {
+        return new ObfuscationEngine(config, promptShieldStorageService);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public ObfuscationEngine obfuscationEngine(ObfuscationConfig config, @Qualifier("promptShieldStorageService") StorageService storageService) {
-        return new ObfuscationEngine(config, storageService);
+    @ConditionalOnClass(name = "org.aspectj.lang.annotation.Aspect")
+    @ConditionalOnProperty(prefix = "prompt-shield.annotation", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public ObfuscationInterceptor obfuscationInterceptor(ObfuscationEngine engine) {
+        return new ObfuscationInterceptor(engine);
     }
 }

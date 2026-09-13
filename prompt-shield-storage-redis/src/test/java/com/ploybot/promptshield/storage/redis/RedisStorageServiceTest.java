@@ -74,6 +74,42 @@ class RedisStorageServiceTest {
     }
 
     @Test
+    void storeIfAbsentUsesSetNx() throws Exception {
+        ObfuscationTag tag = new ObfuscationTag("DNI", "abc123", "12345678Z");
+        String json = "{\"type\":\"DNI\",\"hash\":\"abc123\",\"originalValue\":\"12345678Z\"}";
+        when(objectMapper.writeValueAsString(tag)).thenReturn(json);
+        when(valueOperations.setIfAbsent("prompt-shield:tag:s:abc123", json, Duration.ofHours(24))).thenReturn(true);
+
+        assertTrue(storageService.storeIfAbsent("s:abc123", tag).isEmpty());
+        verify(valueOperations, never()).set(anyString(), anyString(), any(Duration.class));
+    }
+
+    @Test
+    void storeIfAbsentReturnsTheExistingMapping() throws Exception {
+        ObfuscationTag tag = new ObfuscationTag("DNI", "abc123", "87654321X");
+        ObfuscationTag existing = new ObfuscationTag("DNI", "abc123", "12345678Z");
+        String existingJson = "{\"type\":\"DNI\",\"hash\":\"abc123\",\"originalValue\":\"12345678Z\"}";
+        when(objectMapper.writeValueAsString(tag)).thenReturn("new");
+        when(valueOperations.setIfAbsent("prompt-shield:tag:s:abc123", "new", Duration.ofHours(24))).thenReturn(false);
+        when(valueOperations.get("prompt-shield:tag:s:abc123")).thenReturn(existingJson);
+        when(objectMapper.readValue(existingJson, ObfuscationTag.class)).thenReturn(existing);
+
+        assertEquals(Optional.of(existing), storageService.storeIfAbsent("s:abc123", tag));
+    }
+
+    @Test
+    void refreshExtendsTheTtl() {
+        storageService.refresh("s:abc123");
+
+        verify(redisTemplate).expire("prompt-shield:tag:s:abc123", Duration.ofHours(24));
+    }
+
+    @Test
+    void nonPositiveTtlIsRejected() {
+        assertThrows(IllegalArgumentException.class, () -> new RedisStorageService(redisTemplate, objectMapper, 0));
+    }
+
+    @Test
     void testRetrieve() throws Exception {
         // Arrange
         String hash = "abc123";

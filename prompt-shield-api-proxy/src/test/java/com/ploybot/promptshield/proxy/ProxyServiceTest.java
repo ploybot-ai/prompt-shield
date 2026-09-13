@@ -1,10 +1,11 @@
 package com.ploybot.promptshield.proxy;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ploybot.promptshield.engine.ObfuscationEngine;
 import com.ploybot.promptshield.model.ObfuscationConfig;
-import com.ploybot.promptshield.proxy.model.ChatCompletionRequest;
-import com.ploybot.promptshield.proxy.model.ChatCompletionResponse;
-import com.ploybot.promptshield.proxy.model.ChatMessage;
+import com.ploybot.promptshield.proxy.client.AiProviderClient;
+import com.ploybot.promptshield.proxy.client.AiProviderClient.ProviderResponse;
 import com.ploybot.promptshield.proxy.service.ProxyService;
 import com.ploybot.promptshield.storage.InMemoryStorageService;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,335 +16,208 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ProxyServiceTest {
 
-    @Mock
-    private com.ploybot.promptshield.proxy.client.AiProviderClient aiClient;
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Pattern TAG = Pattern.compile("~REDACTED:[A-Z_0-9]+#[a-f0-9]+~");
 
+    @Mock
+    private AiProviderClient aiClient;
+
+    private InMemoryStorageService storage;
     private ObfuscationEngine engine;
     private ProxyService proxyService;
 
     @BeforeEach
     void setUp() {
-        ObfuscationConfig config = new ObfuscationConfig();
-        engine = new ObfuscationEngine(config, new InMemoryStorageService());
+        storage = new InMemoryStorageService();
+        engine = new ObfuscationEngine(new ObfuscationConfig(), storage);
         proxyService = new ProxyService(aiClient, engine, true, true);
     }
 
-    private String extractTag(String obfuscated) {
-        String open = engine.getConfig().getTagOpen();
-        String close = engine.getConfig().getTagClose();
-        int start = obfuscated.indexOf(open);
-        int end = obfuscated.indexOf(close, start + open.length());
-        if (end < 0) end = obfuscated.length();
-        else end += close.length();
-        return obfuscated.substring(start, end);
-    }
-
     @Test
-    void testObfuscateRequest() {
-        // Arrange
-        String userMessage = "Send email to juan@example.com with DNI 12345678Z";
-        ChatCompletionRequest request = new ChatCompletionRequest(
-                "gpt-4o-mini",
-                List.of(ChatMessage.user(userMessage))
-        );
-
-        String tagOpen = engine.getConfig().getTagOpen();
-        String tagSep = engine.getConfig().getTagSeparator();
-
-        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
-            ChatCompletionRequest captured = invocation.getArgument(0);
-            
-            assertNotNull(captured.messages());
-            assertTrue(captured.messages().get(0).role().equals("system"));
-            String obfuscatedContent = captured.messages().get(1).content();
-            assertTrue(obfuscatedContent.contains(tagOpen + "REDACTED:EMAIL" + tagSep));
-            assertTrue(obfuscatedContent.contains(tagOpen + "REDACTED:DNI" + tagSep));
-            assertFalse(obfuscatedContent.contains("juan@example.com"));
-            assertFalse(obfuscatedContent.contains("12345678Z"));
-            
-            return new ChatCompletionResponse(
-                    "chatcmpl-123",
-                    "chat.completion",
-                    System.currentTimeMillis(),
-                    "gpt-4o-mini",
-                    List.of(new ChatCompletionResponse.Choice(
-                            0,
-                            ChatMessage.assistant("Email sent to " + extractTag(engine.ofuscar("juan@example.com"))),
-                            "stop"
-                    )),
-                    new ChatCompletionResponse.Usage(10, 20, 30)
-            );
+    void obfuscatesMessagesAndKeepsUnknownFields() throws Exception {
+        String request = """
+                {"model":"gpt-4o-mini","top_p":0.3,"response_format":{"type":"json_object"},"seed":7,
+                 "messages":[
+                   {"role":"system","content":"Atiendes a juan@example.com"},
+                   {"role":"user","content":[{"type":"text","text":"Mi DNI es 12345678Z"},{"type":"image_url","image_url":{"url":"https://x/y.png"}}]},
+                   {"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"find","arguments":"{\\"dni\\":\\"12345678Z\\"}"}}]},
+                   {"role":"tool","tool_call_id":"c1","content":"{\\"email\\":\\"juan@example.com\\"}"}
+                 ]}""";
+        AtomicReference<String> sent = new AtomicReference<>();
+        when(aiClient.chatCompletion(anyString(), any())).thenAnswer(invocation -> {
+            sent.set(invocation.getArgument(0));
+            return new ProviderResponse(200, "{\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"OK\"}}]}");
         });
 
-        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
+        proxyService.chatCompletion(request, "Bearer sk-client");
 
-        assertNotNull(response);
-        verify(aiClient, times(1)).chatCompletion(any(), any());
+        String body = sent.get();
+        assertFalse(body.contains("12345678Z"), body);
+        assertFalse(body.contains("juan@example.com"), body);
+        JsonNode json = MAPPER.readTree(body);
+        assertEquals(0.3, json.get("top_p").asDouble());
+        assertEquals("json_object", json.at("/response_format/type").asText());
+        assertEquals(7, json.get("seed").asInt());
+        assertEquals("https://x/y.png", json.at("/messages/1/content/1/image_url/url").asText());
+        assertTrue(json.at("/messages/0/content").asText().contains("REDACTED:TYPE#HASH"), "instructions merged into the system message");
+        assertEquals(4, json.get("messages").size(), "no extra system message when one exists");
+        verify(aiClient).chatCompletion(anyString(), eq("Bearer sk-client"));
     }
 
     @Test
-    void testRestoreResponse() {
-        ChatCompletionRequest request = new ChatCompletionRequest(
-                "gpt-4o-mini",
-                List.of(ChatMessage.user("Mi email es juan@example.com"))
-        );
-
-        // The model can only echo tags it saw in the obfuscated request, so the test
-        // captures the tag from what the proxy actually sends
-        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
-            ChatCompletionRequest captured = invocation.getArgument(0);
-            String emailTag = extractTag(captured.messages().get(1).content());
-            return new ChatCompletionResponse(
-                    "chatcmpl-123",
-                    "chat.completion",
-                    System.currentTimeMillis(),
-                    "gpt-4o-mini",
-                    List.of(new ChatCompletionResponse.Choice(
-                            0,
-                            ChatMessage.assistant("Email sent to " + emailTag),
-                            "stop"
-                    )),
-                    new ChatCompletionResponse.Usage(10, 20, 30)
-            );
+    void restoresContentAndToolCallArguments() throws Exception {
+        when(aiClient.chatCompletion(anyString(), any())).thenAnswer(invocation -> {
+            String tag = lastTag(invocation.getArgument(0));
+            return new ProviderResponse(200, """
+                    {"id":"x","choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant",
+                     "content":"Enviando a %1$s","tool_calls":[{"id":"c1","type":"function","function":{"name":"send","arguments":"{\\"to\\":\\"%1$s\\"}"}}]}}],
+                     "usage":{"total_tokens":3}}""".formatted(tag));
         });
 
-        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
+        ProviderResponse response = proxyService.chatCompletion(userRequest("Escribe a juan@example.com", false), null);
 
-        assertNotNull(response);
-        String content = response.choices().get(0).message().content();
-        assertTrue(content.contains("juan@example.com"),
-                "Response should contain restored email, but got: " + content);
-        assertFalse(engine.containsTags(content),
-                "Response should not contain obfuscated tags, but got: " + content);
+        JsonNode json = MAPPER.readTree(response.body());
+        assertEquals("Enviando a juan@example.com", json.at("/choices/0/message/content").asText());
+        assertEquals("{\"to\":\"juan@example.com\"}", json.at("/choices/0/message/tool_calls/0/function/arguments").asText());
+        assertEquals(3, json.at("/usage/total_tokens").asInt());
+        assertEquals(0, storage.size(), "per-request mappings must be released");
     }
 
     @Test
-    void testToolCallArgumentsRestored() {
-        ChatCompletionRequest request = new ChatCompletionRequest(
-                "gpt-4o-mini",
-                List.of(ChatMessage.user("Send email to user@test.com"))
-        );
+    void providerErrorsArePassedThrough() {
+        when(aiClient.chatCompletion(anyString(), any()))
+                .thenReturn(new ProviderResponse(401, "{\"error\":{\"message\":\"bad key\"}}"));
 
-        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
-            ChatCompletionRequest captured = invocation.getArgument(0);
-            String emailTag = extractTag(captured.messages().get(1).content());
-            String toolArgs = "{\"to\":\"" + emailTag + "\",\"subject\":\"Hello\"}";
-            com.ploybot.promptshield.proxy.model.ToolCall toolCall = new com.ploybot.promptshield.proxy.model.ToolCall(
-                    "call_123",
-                    "function",
-                    "sendEmail",
-                    toolArgs
-            );
-            return new ChatCompletionResponse(
-                    "chatcmpl-123",
-                    "chat.completion",
-                    System.currentTimeMillis(),
-                    "gpt-4o-mini",
-                    List.of(new ChatCompletionResponse.Choice(
-                            0,
-                            ChatMessage.assistant("I'll send an email", List.of(toolCall)),
-                            "tool_calls"
-                    )),
-                    new ChatCompletionResponse.Usage(10, 20, 30)
-            );
-        });
+        ProviderResponse response = proxyService.chatCompletion(userRequest("Hola", false), "Bearer bad");
 
-        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
-
-        assertNotNull(response);
-        var outputMessage = response.choices().get(0).message();
-        assertTrue(outputMessage.hasToolCalls());
-        
-        String restoredArgs = outputMessage.toolCalls().get(0).arguments();
-        assertTrue(restoredArgs.contains("user@test.com"),
-                "Tool call arguments should contain restored email, but got: " + restoredArgs);
-        assertFalse(engine.containsTags(restoredArgs),
-                "Tool call arguments should not contain obfuscated tags, but got: " + restoredArgs);
+        assertEquals(401, response.status());
+        assertEquals("{\"error\":{\"message\":\"bad key\"}}", response.body());
     }
 
     @Test
-    void testStreamingTagSplitAcrossChunksIsRestored() {
-        ChatCompletionRequest request = new ChatCompletionRequest(
-                "gpt-4o-mini",
-                List.of(ChatMessage.user("Mi email es juan@example.com"))
-        );
-
-        when(aiClient.chatCompletionStream(any(), any())).thenAnswer(invocation -> {
-            ChatCompletionRequest captured = invocation.getArgument(0);
-            String tag = extractTag(captured.messages().get(1).content());
+    void streamingRestoresDeltaContentAndToolArgumentsSplitAcrossChunks() throws Exception {
+        when(aiClient.chatCompletionStream(anyString(), any())).thenAnswer(invocation -> {
+            String tag = lastTag(invocation.getArgument(0));
             int middle = tag.length() / 2;
+            String args = "{\"to\":\"" + tag + "\"}";
             return Flux.just(
-                    streamChunk("Email: " + tag.substring(0, middle)),
-                    streamChunk(tag.substring(middle)),
-                    streamChunk(" listo"));
+                    chunk("{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Email: " + tag.substring(0, middle) + "\"}}"),
+                    chunk("{\"index\":0,\"delta\":{\"content\":\"" + tag.substring(middle) + " listo\"}}"),
+                    chunk("{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"send\",\"arguments\":"
+                            + MAPPER.writeValueAsString(args.substring(0, 12)) + "}}]}}"),
+                    chunk("{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":"
+                            + MAPPER.writeValueAsString(args.substring(12)) + "}}]}}"),
+                    chunk("{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}"));
         });
 
-        String text = proxyService.chatCompletionStream(request, null)
-                .flatMapIterable(ChatCompletionResponse::choices)
-                .map(ChatCompletionResponse.Choice::message)
-                .map(ChatMessage::content)
-                .collectList()
-                .map(parts -> String.join("", parts))
-                .block();
+        List<String> chunks = proxyService.chatCompletionStream(userRequest("Mi email es juan@example.com", true), null)
+                .collectList().block();
 
-        assertEquals("Email: juan@example.com listo", text);
-    }
-
-    private ChatCompletionResponse streamChunk(String content) {
-        return new ChatCompletionResponse(
-                "chatcmpl-stream", "chat.completion.chunk", System.currentTimeMillis(),
-                "gpt-4o-mini",
-                List.of(new ChatCompletionResponse.Choice(0, ChatMessage.assistant(content), null)),
-                null);
+        StringBuilder content = new StringBuilder();
+        StringBuilder arguments = new StringBuilder();
+        for (String chunk : chunks) {
+            JsonNode delta = MAPPER.readTree(chunk).at("/choices/0/delta");
+            content.append(delta.path("content").asText(""));
+            delta.path("tool_calls").forEach(call -> arguments.append(call.at("/function/arguments").asText("")));
+        }
+        assertEquals("Email: juan@example.com listo", content.toString());
+        assertEquals("{\"to\":\"juan@example.com\"}", arguments.toString());
+        assertEquals(0, storage.size());
     }
 
     @Test
-    void testNoObfuscationWhenDisabled() {
-        ProxyService noObfuscationService = new ProxyService(aiClient, engine, false, true);
-        
-        String userMessage = "Send email to juan@example.com";
-        ChatCompletionRequest request = new ChatCompletionRequest(
-                "gpt-4o-mini",
-                List.of(ChatMessage.user(userMessage))
-        );
+    void streamEndingMidTagFlushesTheRemainder() throws Exception {
+        when(aiClient.chatCompletionStream(anyString(), any()))
+                .thenReturn(Flux.just(chunk("{\"index\":0,\"delta\":{\"content\":\"Fin ~REDACTED:EM\"}}")));
 
-        String tagOpen = engine.getConfig().getTagOpen();
-        String tagSep = engine.getConfig().getTagSeparator();
+        List<String> chunks = proxyService.chatCompletionStream(userRequest("Hola", true), null).collectList().block();
 
-        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
-            ChatCompletionRequest captured = invocation.getArgument(0);
-            
-            assertEquals(1, captured.messages().size());
-            assertTrue(captured.messages().get(0).content().contains(tagOpen + "REDACTED:EMAIL" + tagSep));
-            
-            return new ChatCompletionResponse(
-                    "chatcmpl-123",
-                    "chat.completion",
-                    System.currentTimeMillis(),
-                    "gpt-4o-mini",
-                    List.of(new ChatCompletionResponse.Choice(
-                            0,
-                            ChatMessage.assistant("OK"),
-                            "stop"
-                    )),
-                    new ChatCompletionResponse.Usage(10, 20, 30)
-            );
-        });
-
-        ChatCompletionResponse response = noObfuscationService.chatCompletion(request, null);
-
-        verify(aiClient, times(1)).chatCompletion(any(), any());
+        String content = chunks.stream()
+                .map(chunk -> readTree(chunk).at("/choices/0/delta/content").asText(""))
+                .reduce("", String::concat);
+        assertEquals("Fin ~REDACTED:EM", content);
     }
 
     @Test
-    void testNoRestoreWhenDisabled() {
-        ProxyService noRestoreService = new ProxyService(aiClient, engine, true, false);
-        
-        ChatCompletionRequest request = new ChatCompletionRequest(
-                "gpt-4o-mini",
-                List.of(ChatMessage.user("Test"))
-        );
-
-        String emailTag = extractTag(engine.ofuscar("juan@example.com"));
-
-        when(aiClient.chatCompletion(any(), any())).thenReturn(new ChatCompletionResponse(
-                "chatcmpl-123",
-                "chat.completion",
-                System.currentTimeMillis(),
-                "gpt-4o-mini",
-                List.of(new ChatCompletionResponse.Choice(
-                        0,
-                        ChatMessage.assistant("Email: " + emailTag),
-                        "stop"
-                )),
-                new ChatCompletionResponse.Usage(10, 20, 30)
-        ));
-
-        ChatCompletionResponse response = noRestoreService.chatCompletion(request, null);
-
-        assertNotNull(response);
-        String content = response.choices().get(0).message().content();
-        assertTrue(engine.containsTags(content),
-                "Response should contain obfuscated tags when restore is disabled");
-    }
-
-    @Test
-    void testTagsFromAnotherRequestAreNotRestored() {
+    void tagsFromAnotherRequestAreNotRestored() {
         // Tags minted for one proxied request must not be restorable in another:
         // otherwise a prompt injection could exfiltrate other users' data
-        String foreignTag = extractTag(engine.forScope("other-user").obfuscate("victima@example.com"));
+        String foreignTag = engine.forScope("other-user").obfuscate("victima@example.com");
+        when(aiClient.chatCompletion(anyString(), any())).thenReturn(new ProviderResponse(200,
+                "{\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Datos: " + foreignTag + "\"}}]}"));
 
-        ChatCompletionRequest request = new ChatCompletionRequest(
-                "gpt-4o-mini",
-                List.of(ChatMessage.user("Hola"))
-        );
+        ProviderResponse response = proxyService.chatCompletion(userRequest("Hola", false), null);
 
-        when(aiClient.chatCompletion(any(), any())).thenReturn(new ChatCompletionResponse(
-                "chatcmpl-123",
-                "chat.completion",
-                System.currentTimeMillis(),
-                "gpt-4o-mini",
-                List.of(new ChatCompletionResponse.Choice(
-                        0,
-                        ChatMessage.assistant("Datos: " + foreignTag),
-                        "stop"
-                )),
-                new ChatCompletionResponse.Usage(10, 20, 30)
-        ));
-
-        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
-
-        String content = response.choices().get(0).message().content();
-        assertFalse(content.contains("victima@example.com"),
-                "a tag from another request must never be restored, but got: " + content);
+        assertFalse(response.body().contains("victima@example.com"));
     }
 
     @Test
-    void testMultipleMessagesObfuscated() {
-        ChatCompletionRequest request = new ChatCompletionRequest(
-                "gpt-4o-mini",
-                List.of(
-                        ChatMessage.system("You are a helpful assistant"),
-                        ChatMessage.user("My DNI is 12345678Z"),
-                        ChatMessage.assistant("What is your email?"),
-                        ChatMessage.user("My email is test@example.com")
-                )
-        );
-
-        String tagOpen = engine.getConfig().getTagOpen();
-        String tagSep = engine.getConfig().getTagSeparator();
-
-        when(aiClient.chatCompletion(any(), any())).thenAnswer(invocation -> {
-            ChatCompletionRequest captured = invocation.getArgument(0);
-            
-            assertEquals(4, captured.messages().size());
-            assertTrue(captured.messages().get(1).content().contains(tagOpen + "REDACTED:DNI" + tagSep));
-            assertTrue(captured.messages().get(3).content().contains(tagOpen + "REDACTED:EMAIL" + tagSep));
-            
-            return new ChatCompletionResponse(
-                    "chatcmpl-123",
-                    "chat.completion",
-                    System.currentTimeMillis(),
-                    "gpt-4o-mini",
-                    List.of(new ChatCompletionResponse.Choice(
-                            0,
-                            ChatMessage.assistant("OK"),
-                            "stop"
-                    )),
-                    new ChatCompletionResponse.Usage(10, 20, 30)
-            );
+    void noSystemPromptWhenInjectionIsDisabled() throws Exception {
+        ProxyService noInjection = new ProxyService(aiClient, engine, false, true);
+        AtomicReference<String> sent = new AtomicReference<>();
+        when(aiClient.chatCompletion(anyString(), any())).thenAnswer(invocation -> {
+            sent.set(invocation.getArgument(0));
+            return new ProviderResponse(200, "{\"choices\":[]}");
         });
 
-        ChatCompletionResponse response = proxyService.chatCompletion(request, null);
+        noInjection.chatCompletion(userRequest("Send email to juan@example.com", false), null);
 
-        verify(aiClient, times(1)).chatCompletion(any(), any());
+        JsonNode messages = MAPPER.readTree(sent.get()).get("messages");
+        assertEquals(1, messages.size());
+        assertTrue(messages.at("/0/content").asText().contains("~REDACTED:EMAIL#"));
+    }
+
+    @Test
+    void invalidRequestsAreRejected() {
+        assertThrows(ProxyService.InvalidRequestException.class, () -> proxyService.chatCompletion("{\"model\":\"x\"}", null));
+        assertThrows(ProxyService.InvalidRequestException.class, () -> ProxyService.isStreamRequest("not json"));
+    }
+
+    private static String userRequest(String text, boolean stream) {
+        return "{\"model\":\"gpt-4o-mini\",\"stream\":" + stream + ",\"messages\":[{\"role\":\"user\",\"content\":"
+                + quote(text) + "}]}";
+    }
+
+    private static String chunk(String choice) {
+        return "{\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"model\":\"gpt-4o-mini\",\"choices\":[" + choice + "]}";
+    }
+
+    /** The user's tag: the injected instructions come first and contain an example tag. */
+    private static String lastTag(String text) {
+        Matcher matcher = TAG.matcher(text);
+        String tag = null;
+        while (matcher.find()) {
+            tag = matcher.group();
+        }
+        assertNotNull(tag, () -> "no tag in: " + text);
+        return tag;
+    }
+
+    private static String quote(String text) {
+        try {
+            return MAPPER.writeValueAsString(text);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static JsonNode readTree(String json) {
+        try {
+            return MAPPER.readTree(json);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 }

@@ -1,6 +1,6 @@
 package com.ploybot.promptshield.model;
 
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class ObfuscationConfig {
@@ -17,7 +17,7 @@ public class ObfuscationConfig {
     private boolean serviceKeysEnabled = true;
     private boolean checksumValidationEnabled = true;
     private String hmacSecret;
-    private final Map<String, CustomTypeConfig> customTypes = new HashMap<>();
+    private final Map<String, CustomTypeConfig> customTypes = new LinkedHashMap<>();
 
     public String getHashAlgorithm() {
         return hashAlgorithm;
@@ -142,7 +142,7 @@ public class ObfuscationConfig {
     }
 
     public Map<String, String> getCustomPatterns() {
-        Map<String, String> patterns = new HashMap<>();
+        Map<String, String> patterns = new LinkedHashMap<>();
         for (Map.Entry<String, CustomTypeConfig> entry : customTypes.entrySet()) {
             patterns.put(entry.getKey(), entry.getValue().getPattern());
         }

@@ -3,56 +3,35 @@ package com.ploybot.promptshield.ner.regex;
 import com.ploybot.promptshield.model.ObfuscationConfig;
 import com.ploybot.promptshield.ner.DetectedEntity;
 import com.ploybot.promptshield.ner.EntityDetector;
-import com.ploybot.promptshield.registry.SensitiveDataType;
+import com.ploybot.promptshield.registry.DataTypeRegistry;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
+/**
+ * Detects the same entities the obfuscation engine would replace: built-in and
+ * custom types, honouring {@code serviceKeysEnabled}, checksum validation and type
+ * priority (overlapping matches are resolved in favour of the higher-priority type).
+ */
 public class RegexEntityDetector implements EntityDetector {
 
-    private final ObfuscationConfig config;
+    private final DataTypeRegistry registry;
 
     public RegexEntityDetector(ObfuscationConfig config) {
-        this.config = config;
+        ObfuscationConfig effective = config != null ? config : new ObfuscationConfig();
+        this.registry = new DataTypeRegistry(effective.isServiceKeysEnabled(), effective.isChecksumValidationEnabled());
+        for (Map.Entry<String, String> entry : effective.getCustomPatterns().entrySet()) {
+            registry.register(entry.getKey(), entry.getValue());
+        }
+    }
+
+    public RegexEntityDetector(DataTypeRegistry registry) {
+        this.registry = registry;
     }
 
     @Override
     public List<DetectedEntity> detect(String text) {
-        List<DetectedEntity> entities = new ArrayList<>();
-
-        // Detect built-in types
-        for (SensitiveDataType dataType : SensitiveDataType.values()) {
-            detectByPattern(text, dataType.name(), dataType.getPattern(), entities);
-        }
-
-        // Detect custom types
-        if (config != null && config.getCustomPatterns() != null) {
-            for (Map.Entry<String, String> entry : config.getCustomPatterns().entrySet()) {
-                detectByPattern(text, entry.getKey(), entry.getValue(), entities);
-            }
-        }
-
-        return entities;
-    }
-
-    private void detectByPattern(String text, String type, String pattern, List<DetectedEntity> entities) {
-        try {
-            Pattern regex = Pattern.compile(pattern);
-            Matcher matcher = regex.matcher(text);
-            while (matcher.find()) {
-                entities.add(new DetectedEntity(
-                        type,
-                        matcher.group(),
-                        matcher.start(),
-                        matcher.end()
-                ));
-            }
-        } catch (Exception e) {
-            // Skip invalid patterns
-        }
+        return registry.detect(text);
     }
 
     @Override

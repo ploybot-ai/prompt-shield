@@ -203,12 +203,11 @@ jobs:
         run: mvn package -B -DskipTests
 
       - name: Create release body file
-        run: |
-          if [ -n "${{ inputs.release_notes }}" ]; then
-            echo "${{ inputs.release_notes }}" > /tmp/release-body.md
-          else
-            echo "" > /tmp/release-body.md
-          fi
+        # Passed through the environment: interpolating the input into the script would
+        # break on quotes and run anything written in the notes
+        env:
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: printf '%s\n' "$RELEASE_NOTES" > /tmp/release-body.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

@@ -13,6 +13,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
+import java.time.Duration;
+
 @AutoConfiguration
 @ConditionalOnClass({ObfuscationEngine.class, PromptShieldAdvisor.class})
 @ConditionalOnProperty(prefix = "prompt-shield.advisor", name = "enabled", havingValue = "true", matchIfMissing = true)
@@ -28,37 +30,20 @@ public class PromptShieldAdvisorAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public ObfuscationConfig promptShieldObfuscationConfig() {
-        ObfuscationConfig config = new ObfuscationConfig();
-        config.setHashAlgorithm(properties.getHashAlgorithm());
-        config.setHashLength(properties.getHashLength());
-        config.setEnabled(properties.isEnabled());
-        config.setRedactedPrefix(properties.getRedactedPrefix());
-        config.setTagSeparator(properties.getTagSeparator());
-        config.setTagOpen(properties.getTagOpen());
-        config.setTagClose(properties.getTagClose());
-        config.setStorageType(properties.getStorage().getType());
-        config.setServiceKeysEnabled(properties.isServiceKeysEnabled());
-        config.setChecksumValidationEnabled(properties.isChecksumValidationEnabled());
-        config.setHmacSecret(properties.getHmacSecret());
-
-        for (var entry : properties.getCustomTypes().entrySet()) {
-            config.addCustomType(entry.getKey(), entry.getValue().getPattern());
-        }
-
-        return config;
+        return properties.toObfuscationConfig();
     }
 
     @Bean
     @ConditionalOnMissingBean(StorageService.class)
     @ConditionalOnProperty(prefix = "prompt-shield.storage", name = "type", havingValue = "memory", matchIfMissing = true)
     public StorageService promptShieldStorageService() {
-        return new InMemoryStorageService();
+        return new InMemoryStorageService(Duration.ofHours(properties.getStorage().getMemory().getTtlHours()));
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public ObfuscationEngine promptShieldObfuscationEngine(ObfuscationConfig config, StorageService storageService) {
-        return new ObfuscationEngine(config, storageService);
+    public ObfuscationEngine promptShieldObfuscationEngine(ObfuscationConfig config, StorageService promptShieldStorageService) {
+        return new ObfuscationEngine(config, promptShieldStorageService);
     }
 
     @Bean
@@ -70,7 +55,9 @@ public class PromptShieldAdvisorAutoConfiguration {
                 advisorProps.getOrder(),
                 advisorProps.isRestoreOnResponse(),
                 advisorProps.isInjectSystemPrompt(),
-                advisorProps.getSystemPrompt()
+                advisorProps.getSystemPrompt(),
+                advisorProps.isObfuscateSystemMessages(),
+                advisorProps.isObfuscateToolResponses()
         );
     }
 }

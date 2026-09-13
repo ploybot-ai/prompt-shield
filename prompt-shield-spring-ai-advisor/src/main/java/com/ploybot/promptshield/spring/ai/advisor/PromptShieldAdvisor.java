@@ -3,6 +3,7 @@ package com.ploybot.promptshield.spring.ai.advisor;
 import com.ploybot.promptshield.engine.ObfuscationEngine;
 import com.ploybot.promptshield.engine.ObfuscationScope;
 import com.ploybot.promptshield.engine.StreamingRestorer;
+import com.ploybot.promptshield.engine.SystemPromptGenerator;
 import com.ploybot.promptshield.model.ObfuscationConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +16,7 @@ import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -26,6 +28,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Obfuscates sensitive data in every message sent to the model (system, user,
+ * assistant history, tool calls and tool results) and restores it in the response.
+ *
+ * <p>Keep this advisor inside Spring AI's tool calling advisor (its order must be
+ * greater than {@code ToolCallingAdvisor.DEFAULT_ORDER}, which the default order 0
+ * is): each iteration of the tool loop then passes through it, so tools receive
+ * restored arguments and their results are obfuscated before reaching the model.
+ */
 public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
     private static final Logger logger = LoggerFactory.getLogger(PromptShieldAdvisor.class);
@@ -37,57 +48,13 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     @Deprecated(since = "1.3.0")
     public static final String CONVERSATION_ID_KEY = "prompt-shield-conversation-id";
 
-    private static final String SYSTEM_PROMPT_EN_TEMPLATE = """
-            IMPORTANT: This conversation may contain obfuscated sensitive data markers in the format %s. These are NOT errors or artifacts - they are intentional security placeholders protecting Personally Identifiable Information (PII).
-
-            RULES:
-            1. NEVER modify, reformat, remove, or attempt to "fix" these placeholders
-            2. NEVER ask the user about them or explain what they might be
-            3. Treat them as opaque identifiers - the original values will be restored after your response
-            4. Reference them naturally as if they were the original data
-            5. If you need to repeat the data in your response, use the EXACT placeholder as-is
-            6. Do NOT try to decode, guess, or reconstruct the original values
-
-            TOOL CALLS:
-            When you invoke tools, use the placeholders exactly as they appear in the conversation.
-            The system will automatically restore the original values before the tool is executed.
-
-            Example of a tool call with obfuscated data:
-            - User says: "Send email to %s"
-            - You call tool: sendEmail(to="%s", subject="Hello")
-            - The system restores it to: sendEmail(to="user@example.com", subject="Hello")
-
-            Your task is to process the REQUEST, not the placeholders. The system will handle restoration of original values.
-            """;
-
-    private static final String SYSTEM_PROMPT_ES_TEMPLATE = """
-            IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato %s. NO son errores ni artefactos - son marcadores de seguridad intencionales que protegen Información Personal Identificable (PII).
-
-            REGLAS:
-            1. NUNCA modifiques, reformatees, elimines o intentes "corregir" estos marcadores
-            2. NUNCA preguntes al usuario sobre ellos o expliques qué podrían ser
-            3. Trátalos como identificadores opacos - los valores originales se restaurarán después de tu respuesta
-            4. Refiérete a ellos naturalmente como si fueran los datos originales
-            5. Si necesitas repetir los datos en tu respuesta, usa el marcador EXACTO tal cual
-            6. NO intentes decodificar, adivinar o reconstruir los valores originales
-
-            LLAMADAS A HERRAMIENTAS:
-            Cuando invoques herramientas, usa los marcadores exactamente como aparecen en la conversación.
-            El sistema restaurará automáticamente los valores originales antes de ejecutar la herramienta.
-
-            Ejemplo de llamada a herramienta con datos ofuscados:
-            - El usuario dice: "Envía email a %s"
-            - Tú llamas a la herramienta: sendEmail(to="%s", subject="Hola")
-            - El sistema lo restaura a: sendEmail(to="usuario@ejemplo.com", subject="Hola")
-
-            Tu tarea es procesar la SOLICITUD, no los marcadores. El sistema se encargará de restaurar los valores originales.
-            """;
-
     private final ObfuscationEngine engine;
     private final int order;
     private final boolean restoreOnResponse;
     private final boolean injectSystemPrompt;
     private final String systemPrompt;
+    private final boolean obfuscateSystemMessages;
+    private final boolean obfuscateToolResponses;
 
     public PromptShieldAdvisor() {
         this(new ObfuscationEngine(), 0, true, true, (String) null);
@@ -110,25 +77,26 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     public PromptShieldAdvisor(ObfuscationEngine engine, int order, boolean restoreOnResponse, boolean injectSystemPrompt, String systemPrompt) {
+        this(engine, order, restoreOnResponse, injectSystemPrompt, systemPrompt, true, true);
+    }
+
+    /**
+     * @param obfuscateSystemMessages obfuscate the application's system prompt text
+     * @param obfuscateToolResponses  obfuscate tool results before they reach the model
+     */
+    public PromptShieldAdvisor(ObfuscationEngine engine, int order, boolean restoreOnResponse, boolean injectSystemPrompt,
+                               String systemPrompt, boolean obfuscateSystemMessages, boolean obfuscateToolResponses) {
         this.engine = engine;
         this.order = order;
         this.restoreOnResponse = restoreOnResponse;
         this.injectSystemPrompt = injectSystemPrompt;
         this.systemPrompt = systemPrompt;
+        this.obfuscateSystemMessages = obfuscateSystemMessages;
+        this.obfuscateToolResponses = obfuscateToolResponses;
     }
 
     public static String generateSystemPrompt(ObfuscationConfig config, String language) {
-        String prefix = config.getRedactedPrefix();
-        String separator = config.getTagSeparator();
-        String tagOpen = config.getTagOpen();
-        String tagClose = config.getTagClose();
-        String tagFormat = tagOpen + prefix + ":TYPE" + separator + "HASH" + tagClose;
-        String exampleEmailTag = tagOpen + prefix + ":EMAIL" + separator + "e5a3b2" + tagClose;
-
-        if ("es".equalsIgnoreCase(language)) {
-            return String.format(SYSTEM_PROMPT_ES_TEMPLATE, tagFormat, exampleEmailTag, exampleEmailTag);
-        }
-        return String.format(SYSTEM_PROMPT_EN_TEMPLATE, tagFormat, exampleEmailTag, exampleEmailTag);
+        return SystemPromptGenerator.generate(config, language);
     }
 
     public static String generateSystemPrompt(ObfuscationConfig config) {
@@ -139,7 +107,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         if (systemPrompt != null && !systemPrompt.isBlank()) {
             return systemPrompt;
         }
-        return generateSystemPrompt(engine.getConfig());
+        return engine.generateSystemPrompt();
     }
 
     @Override
@@ -154,45 +122,50 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
-        ObfuscationScope scope = resolveScope(chatClientRequest);
-        ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest, scope);
+        ResolvedScope resolved = resolveScope(chatClientRequest);
+        ObfuscationScope scope = resolved.scope();
+        try {
+            ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest, scope);
 
-        logUserMessage(obfuscatedRequest);
-        ChatClientResponse response = callAdvisorChain.nextCall(obfuscatedRequest);
-        logAssistantResponse(response);
+            logUserMessage(obfuscatedRequest);
+            ChatClientResponse response = callAdvisorChain.nextCall(obfuscatedRequest);
+            logAssistantResponse(response);
 
-        if (restoreOnResponse) {
-            return restoreResponse(response, scope);
+            return restoreOnResponse ? restoreResponse(response, scope) : response;
+        } finally {
+            releaseIfEphemeral(resolved);
         }
-
-        return response;
     }
 
     @Override
     public Flux<ChatClientResponse> adviseStream(ChatClientRequest chatClientRequest, StreamAdvisorChain streamAdvisorChain) {
-        ObfuscationScope scope = resolveScope(chatClientRequest);
-        ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest, scope);
-
-        logUserMessage(obfuscatedRequest);
-        Flux<ChatClientResponse> responseFlux = streamAdvisorChain.nextStream(obfuscatedRequest)
-                .doOnNext(this::logAssistantResponse);
-
-        if (!restoreOnResponse) {
-            return responseFlux;
-        }
-
-        // Per-subscription state: a tag may arrive split across chunks, so text is
-        // buffered until it is either a complete tag or provably not one.
+        // Everything happens per subscription: the scope, the obfuscated request and the
+        // restorer state (a tag may arrive split across chunks, so text is buffered until
+        // it is either a complete tag or provably not one).
         return Flux.defer(() -> {
-            StreamingRestorer restorer = scope.streamingRestorer();
-            LastChunkHolder lastChunk = new LastChunkHolder();
-            return responseFlux
-                    .map(chunk -> {
-                        ChatClientResponse restored = restoreStreamChunk(chunk, restorer, scope);
-                        lastChunk.value = restored;
-                        return restored;
-                    })
-                    .concatWith(Flux.defer(() -> trailingChunk(restorer, lastChunk.value)));
+            ResolvedScope resolved = resolveScope(chatClientRequest);
+            ObfuscationScope scope = resolved.scope();
+            ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest, scope);
+
+            logUserMessage(obfuscatedRequest);
+            Flux<ChatClientResponse> responseFlux = streamAdvisorChain.nextStream(obfuscatedRequest)
+                    .doOnNext(this::logAssistantResponse);
+
+            if (restoreOnResponse) {
+                StreamingRestorer restorer = scope.streamingRestorer();
+                LastChunkHolder lastChunk = new LastChunkHolder();
+                responseFlux = responseFlux
+                        .map(chunk -> {
+                            ChatClientResponse restored = restoreStreamChunk(chunk, restorer, scope);
+                            lastChunk.value = restored;
+                            return restored;
+                        })
+                        .concatWith(Flux.defer(() -> trailingChunk(restorer, lastChunk.value)));
+            }
+
+            return resolved.ephemeral()
+                    ? responseFlux.doFinally(signal -> releaseIfEphemeral(resolved))
+                    : responseFlux;
         });
     }
 
@@ -200,12 +173,17 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         private volatile ChatClientResponse value;
     }
 
+    /** A scope and whether it was generated for this request only. */
+    private record ResolvedScope(ObfuscationScope scope, boolean ephemeral) {
+    }
+
     /**
      * Resolves the isolation scope for this request. Prompt Shield's explicit scope
      * wins, followed by its legacy conversation key and Spring AI ChatMemory's
-     * conversation id. If none is present, a fresh per-request scope is used.
+     * conversation id. If none is present, a fresh per-request scope is used and its
+     * mappings are released once the response has been produced.
      */
-    private ObfuscationScope resolveScope(ChatClientRequest request) {
+    private ResolvedScope resolveScope(ChatClientRequest request) {
         String id = nonBlankContextValue(request, SCOPE_ID_KEY);
         if (id == null) {
             id = nonBlankContextValue(request, CONVERSATION_ID_KEY);
@@ -214,9 +192,20 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
             id = nonBlankContextValue(request, ChatMemory.CONVERSATION_ID);
         }
         if (id == null) {
-            id = UUID.randomUUID().toString();
+            return new ResolvedScope(engine.forScope(UUID.randomUUID().toString()), true);
         }
-        return engine.forScope(id);
+        return new ResolvedScope(engine.forScope(id), false);
+    }
+
+    private void releaseIfEphemeral(ResolvedScope resolved) {
+        if (!resolved.ephemeral()) {
+            return;
+        }
+        try {
+            resolved.scope().removeCreatedMappings();
+        } catch (RuntimeException e) {
+            logger.warn("PromptShieldAdvisor: Could not release per-request mappings: {}", e.getMessage());
+        }
     }
 
     private String nonBlankContextValue(ChatClientRequest request, String key) {
@@ -258,26 +247,21 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
         for (Message message : prompt.getInstructions()) {
             if (message instanceof SystemMessage systemMessage) {
-                if (injectSystemPrompt && obfuscationInstructions != null) {
-                    String mergedContent = systemMessage.getText() + "\n\n" + obfuscationInstructions;
-                    messages.add(new SystemMessage(mergedContent));
-                    logger.debug("PromptShieldAdvisor: Merged obfuscation instructions into existing system prompt");
-                } else {
-                    messages.add(message);
-                }
+                messages.add(obfuscateSystemMessage(systemMessage, scope, obfuscationInstructions));
             } else if (message instanceof UserMessage userMessage) {
                 messages.add(userMessage.mutate()
                         .text(scope.obfuscate(userMessage.getText()))
                         .build());
             } else if (message instanceof AssistantMessage assistantMessage) {
                 messages.add(obfuscateAssistantMessage(assistantMessage, scope));
+            } else if (message instanceof ToolResponseMessage toolResponseMessage && obfuscateToolResponses) {
+                messages.add(obfuscateToolResponseMessage(toolResponseMessage, scope));
             } else {
                 messages.add(message);
             }
         }
 
-        if (injectSystemPrompt && obfuscationInstructions != null
-                && messages.stream().noneMatch(m -> m instanceof SystemMessage)) {
+        if (obfuscationInstructions != null && messages.stream().noneMatch(m -> m instanceof SystemMessage)) {
             messages.add(0, new SystemMessage(obfuscationInstructions));
             logger.debug("PromptShieldAdvisor: Injected system prompt");
         }
@@ -286,16 +270,42 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         return request.mutate().prompt(obfuscatedPrompt).build();
     }
 
+    /**
+     * System prompts often carry user context (name, email, account). The application
+     * text is obfuscated; the obfuscation instructions are appended afterwards so their
+     * example placeholder is left intact.
+     */
+    private SystemMessage obfuscateSystemMessage(SystemMessage message, ObfuscationScope scope, String instructions) {
+        String text = obfuscateSystemMessages ? scope.obfuscate(message.getText()) : message.getText();
+        if (instructions != null) {
+            text = text + "\n\n" + instructions;
+            logger.debug("PromptShieldAdvisor: Merged obfuscation instructions into existing system prompt");
+        }
+        return message.mutate().text(text).build();
+    }
+
     private AssistantMessage obfuscateAssistantMessage(AssistantMessage message, ObfuscationScope scope) {
         List<AssistantMessage.ToolCall> toolCalls = message.getToolCalls().stream()
                 .map(tc -> new AssistantMessage.ToolCall(tc.id(), tc.type(), tc.name(),
-                        scope.obfuscate(tc.arguments())))
+                        scope.obfuscateJsonOrText(tc.arguments())))
                 .toList();
         return AssistantMessage.builder()
                 .content(message.getText() != null ? scope.obfuscate(message.getText()) : null)
                 .properties(message.getMetadata())
                 .toolCalls(toolCalls)
                 .media(message.getMedia())
+                .build();
+    }
+
+    /** Tool results are a major source of personal data (customer records, emails...). */
+    private ToolResponseMessage obfuscateToolResponseMessage(ToolResponseMessage message, ObfuscationScope scope) {
+        List<ToolResponseMessage.ToolResponse> responses = message.getResponses().stream()
+                .map(r -> new ToolResponseMessage.ToolResponse(r.id(), r.name(),
+                        scope.obfuscateJsonOrText(r.responseData())))
+                .toList();
+        return ToolResponseMessage.builder()
+                .responses(responses)
+                .metadata(message.getMetadata())
                 .build();
     }
 
@@ -454,5 +464,13 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
     public String getSystemPrompt() {
         return systemPrompt;
+    }
+
+    public boolean isObfuscateSystemMessages() {
+        return obfuscateSystemMessages;
+    }
+
+    public boolean isObfuscateToolResponses() {
+        return obfuscateToolResponses;
     }
 }

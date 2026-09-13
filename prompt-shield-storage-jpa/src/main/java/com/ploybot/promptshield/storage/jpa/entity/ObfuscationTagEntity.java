@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 @Table(name = "obfuscation_tags")
 public class ObfuscationTagEntity {
 
+    /** SHA-256 (hex) of the scoped key, so arbitrarily long scope ids always fit. */
     @Id
     @Column(name = "hash", length = 64)
     private String hash;
@@ -14,15 +15,18 @@ public class ObfuscationTagEntity {
     @Column(name = "type", length = 50, nullable = false)
     private String type;
 
-    @Column(name = "original_value", nullable = false)
+    @Column(name = "original_value", length = 4096, nullable = false)
     private String originalValue;
 
+    /** Creation time, moved forward whenever the mapping is used again. */
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
     }
 
     public ObfuscationTagEntity() {

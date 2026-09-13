@@ -1,79 +1,90 @@
 package com.ploybot.promptshield.proxy.client;
 
-import com.ploybot.promptshield.proxy.model.ChatCompletionRequest;
-import com.ploybot.promptshield.proxy.model.ChatCompletionResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
+import java.util.Objects;
+
+/**
+ * Forwards raw OpenAI-compatible JSON to the provider, so fields the proxy does not
+ * know about ({@code top_p}, {@code response_format}, multimodal content...) are kept.
+ */
 public class AiProviderClient {
 
     private static final Logger logger = LoggerFactory.getLogger(AiProviderClient.class);
+    private static final ParameterizedTypeReference<ServerSentEvent<String>> SSE_TYPE = new ParameterizedTypeReference<>() {
+    };
 
-    private final String baseUrl;
-    private final String defaultApiKey;
+    /** Status and body returned by the provider. */
+    public record ProviderResponse(int status, String body) {
+        public boolean isSuccess() {
+            return status >= 200 && status < 300;
+        }
+    }
+
     private final WebClient webClient;
 
-    public AiProviderClient(String baseUrl, String apiKey) {
-        this.baseUrl = baseUrl;
-        this.defaultApiKey = apiKey;
+    public AiProviderClient(String baseUrl) {
         this.webClient = WebClient.builder()
                 .baseUrl(baseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
     }
 
-    public ChatCompletionResponse chatCompletion(ChatCompletionRequest request, String apiKey) {
-        logger.debug("AiProviderClient: Sending request to provider, model={}", request.model());
-
-        String effectiveApiKey = apiKey != null ? apiKey : defaultApiKey;
-
+    /**
+     * @param authorization value for the upstream {@code Authorization} header, or
+     *                      {@code null} to send none
+     */
+    public ProviderResponse chatCompletion(String requestJson, String authorization) {
+        logger.debug("AiProviderClient: Sending chat completion request to provider");
         return webClient.post()
                 .uri("/v1/chat/completions")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + effectiveApiKey)
-                .bodyValue(request)
-                .retrieve()
-                .bodyToMono(ChatCompletionResponse.class)
+                .headers(headers -> setAuthorization(headers, authorization))
+                .bodyValue(requestJson)
+                .exchangeToMono(response -> response.bodyToMono(String.class)
+                        .defaultIfEmpty("")
+                        .map(body -> new ProviderResponse(response.statusCode().value(), body)))
                 .block();
     }
 
-    public Flux<ChatCompletionResponse> chatCompletionStream(ChatCompletionRequest request, String apiKey) {
-        logger.debug("AiProviderClient: Sending streaming request to provider, model={}", request.model());
-
-        String effectiveApiKey = apiKey != null ? apiKey : defaultApiKey;
-
-        ChatCompletionRequest streamRequest = new ChatCompletionRequest(
-                request.model(),
-                request.messages(),
-                request.maxTokens(),
-                request.temperature(),
-                request.topP(),
-                true,
-                request.tools(),
-                request.toolChoice()
-        );
-
+    /**
+     * Streams the {@code data} payload of each server-sent event, stopping at the
+     * {@code [DONE]} sentinel, which is not emitted.
+     */
+    public Flux<String> chatCompletionStream(String requestJson, String authorization) {
+        logger.debug("AiProviderClient: Sending streaming chat completion request to provider");
         return webClient.post()
                 .uri("/v1/chat/completions")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + effectiveApiKey)
-                .bodyValue(streamRequest)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .headers(headers -> setAuthorization(headers, authorization))
+                .bodyValue(requestJson)
                 .retrieve()
-                .bodyToFlux(ChatCompletionResponse.class);
+                .bodyToFlux(SSE_TYPE)
+                .map(ServerSentEvent::data)
+                .filter(Objects::nonNull)
+                .takeWhile(data -> !"[DONE]".equals(data.strip()));
     }
 
-    public Object listModels(String apiKey) {
+    public ProviderResponse listModels(String authorization) {
         logger.debug("AiProviderClient: Fetching available models");
-
-        String effectiveApiKey = apiKey != null ? apiKey : defaultApiKey;
-
         return webClient.get()
                 .uri("/v1/models")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + effectiveApiKey)
-                .retrieve()
-                .bodyToMono(Object.class)
+                .headers(headers -> setAuthorization(headers, authorization))
+                .exchangeToMono(response -> response.bodyToMono(String.class)
+                        .defaultIfEmpty("")
+                        .map(body -> new ProviderResponse(response.statusCode().value(), body)))
                 .block();
+    }
+
+    private static void setAuthorization(HttpHeaders headers, String authorization) {
+        if (authorization != null && !authorization.isBlank()) {
+            headers.set(HttpHeaders.AUTHORIZATION, authorization);
+        }
     }
 }

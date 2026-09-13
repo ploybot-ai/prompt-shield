@@ -10,16 +10,19 @@ import com.ploybot.promptshield.exception.ObfuscationException;
 import com.ploybot.promptshield.hash.HashGenerator;
 import com.ploybot.promptshield.model.ObfuscationConfig;
 import com.ploybot.promptshield.model.ObfuscationTag;
+import com.ploybot.promptshield.ner.DetectedEntity;
 import com.ploybot.promptshield.registry.DataTypeRegistry;
 import com.ploybot.promptshield.registry.SensitiveDataType;
 import com.ploybot.promptshield.storage.InMemoryStorageService;
 import com.ploybot.promptshield.storage.StorageService;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,6 +52,10 @@ public class ObfuscationEngine {
         if (config.getHashLength() < 1 || config.getHashLength() > MAX_ID_HEX_LENGTH) {
             throw new IllegalArgumentException("hashLength must be between 1 and " + MAX_ID_HEX_LENGTH);
         }
+        requireNonEmpty(config.getTagOpen(), "tagOpen");
+        requireNonEmpty(config.getTagClose(), "tagClose");
+        requireNonEmpty(config.getTagSeparator(), "tagSeparator");
+        requireNonEmpty(config.getRedactedPrefix(), "redactedPrefix");
         this.config = config;
         this.hashGenerator = new HashGenerator(config.getHashAlgorithm(), config.getHashLength(), config.getHmacSecret());
         this.registry = new DataTypeRegistry(config.isServiceKeysEnabled(), config.isChecksumValidationEnabled());
@@ -66,6 +73,12 @@ public class ObfuscationEngine {
 
     public ObfuscationEngine(ObfuscationConfig config) {
         this(config, new InMemoryStorageService());
+    }
+
+    private static void requireNonEmpty(String value, String name) {
+        if (value == null || value.isEmpty()) {
+            throw new IllegalArgumentException(name + " must not be null or empty");
+        }
     }
 
     /**
@@ -89,7 +102,7 @@ public class ObfuscationEngine {
         String separator = Pattern.quote(config.getTagSeparator());
         String suffix = Pattern.quote(config.getTagClose());
         // {n,MAX}: identifiers are extended beyond hashLength when a truncated prefix collides
-        return Pattern.compile(prefix + "([A-Z_]+)" + separator
+        return Pattern.compile(prefix + "(" + DataTypeRegistry.TYPE_NAME_REGEX + ")" + separator
                 + "([a-f0-9]{" + config.getHashLength() + "," + MAX_ID_HEX_LENGTH + "})" + suffix);
     }
 
@@ -98,16 +111,16 @@ public class ObfuscationEngine {
     }
 
     @SuppressWarnings("deprecation")
-    private String defaultScopeId() {
-        return config.getScopeId();
+    private ObfuscationScope defaultScope() {
+        return forScope(config.getScopeId());
     }
 
     public String ofuscar(String text) {
-        return obfuscateScoped(text, defaultScopeId());
+        return defaultScope().obfuscate(text);
     }
 
     public String ofuscar(String text, String typeName) {
-        return obfuscateScoped(text, typeName, defaultScopeId());
+        return defaultScope().obfuscate(text, typeName);
     }
 
     public String ofuscar(String text, SensitiveDataType type) {
@@ -115,69 +128,67 @@ public class ObfuscationEngine {
     }
 
     public String restaurar(String text) {
-        return restoreScoped(text, defaultScopeId());
+        return defaultScope().restore(text);
     }
 
-    String obfuscateScoped(String text, String scopeId) {
+    String obfuscateScoped(String text, ObfuscationScope scope) {
+        return obfuscateTypes(text, registry.getRegisteredTypeNames(), scope);
+    }
+
+    String obfuscateScoped(String text, Collection<String> typeNames, ObfuscationScope scope) {
         if (text == null || text.isEmpty()) {
             return text;
         }
-
-        String result = text;
-        List<String> processedTypes = new ArrayList<>(registry.getRegisteredTypeNames());
-
-        for (String typeName : processedTypes) {
-            Pattern pattern = registry.getPattern(typeName);
-            if (pattern != null) {
-                result = ofuscarTipo(result, typeName, pattern, scopeId);
+        for (String typeName : typeNames) {
+            if (!registry.isRegistered(typeName)) {
+                throw new ObfuscationException("Type not registered: " + typeName);
             }
         }
-
-        return result;
+        return obfuscateTypes(text, typeNames, scope);
     }
 
-    String obfuscateScoped(String text, String typeName, String scopeId) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-
-        Pattern pattern = registry.getPattern(typeName);
-        if (pattern == null) {
-            throw new ObfuscationException("Type not registered: " + typeName);
-        }
-
-        return ofuscarTipo(text, typeName, pattern, scopeId);
-    }
-
-    String obfuscateValueScoped(String value, String typeName, String scopeId) {
+    String obfuscateValueScoped(String value, String typeName, ObfuscationScope scope) {
         if (value == null || value.isEmpty()) {
             return value;
         }
-        if (typeName == null || !typeName.matches("[A-Z_]+")) {
-            throw new IllegalArgumentException("typeName must match [A-Z_]+");
+        if (!DataTypeRegistry.isValidTypeName(typeName)) {
+            throw new IllegalArgumentException("typeName must match " + DataTypeRegistry.TYPE_NAME_REGEX);
         }
-        String id = assignId(typeName, value, scopeId);
+        String id = assignId(typeName, value, scope);
         return formatTag(typeName, id);
     }
 
-    private String ofuscarTipo(String text, String typeName, Pattern pattern, String scopeId) {
-        Matcher matcher = pattern.matcher(text);
-        StringBuffer result = new StringBuffer();
-        Predicate<String> validator = registry.getValidator(typeName);
-
-        while (matcher.find()) {
-            String matchedValue = matcher.group();
-            if (validator != null && !validator.test(matchedValue)) {
-                matcher.appendReplacement(result, Matcher.quoteReplacement(matchedValue));
-                continue;
-            }
-            String id = assignId(typeName, matchedValue, scopeId);
-            String tag = formatTag(typeName, id);
-            matcher.appendReplacement(result, Matcher.quoteReplacement(tag));
+    /**
+     * Detects every requested type on the original text in one pass and replaces the
+     * matches at once. Tags already present in the text are left untouched, so no
+     * pattern can corrupt a tag produced earlier.
+     */
+    private String obfuscateTypes(String text, Collection<String> typeNames, ObfuscationScope scope) {
+        if (text == null || text.isEmpty()) {
+            return text;
         }
-
-        matcher.appendTail(result);
+        List<DetectedEntity> entities = registry.detect(text, typeNames, tagRanges(text));
+        if (entities.isEmpty()) {
+            return text;
+        }
+        StringBuilder result = new StringBuilder(text.length() + entities.size() * 24);
+        int last = 0;
+        for (DetectedEntity entity : entities) {
+            result.append(text, last, entity.getStart());
+            result.append(formatTag(entity.getType(), assignId(entity.getType(), entity.getValue(), scope)));
+            last = entity.getEnd();
+        }
+        result.append(text, last, text.length());
         return result.toString();
+    }
+
+    private List<int[]> tagRanges(String text) {
+        List<int[]> ranges = new ArrayList<>();
+        Matcher matcher = tagPattern.matcher(text);
+        while (matcher.find()) {
+            ranges.add(new int[]{matcher.start(), matcher.end()});
+        }
+        return ranges;
     }
 
     /**
@@ -185,34 +196,38 @@ public class ObfuscationEngine {
      * truncated keyed HMAC; on the (rare) prefix collision with a different value it
      * is deterministically extended one hex character at a time until it is unique.
      */
-    private String assignId(String typeName, String value, String scopeId) {
+    private String assignId(String typeName, String value, ObfuscationScope scope) {
+        String scopeId = scope.getScopeId();
         String fullHash = hashGenerator.generateFull(scopeId + HMAC_INPUT_SEPARATOR + value);
         int maxLength = Math.min(fullHash.length(), MAX_ID_HEX_LENGTH);
-        String id = fullHash.substring(0, Math.min(hashGenerator.getHashLength(), maxLength));
+        int length = Math.min(hashGenerator.getHashLength(), maxLength);
 
-        // StorageService predates atomic put-if-absent operations. Serializing the
-        // read/store pair on the shared service prevents in-process collision races.
-        synchronized (storageService) {
-            while (true) {
-                String key = scopedKey(scopeId, id);
-                Optional<ObfuscationTag> existing = storageService.retrieve(key);
-                if (existing.isEmpty()) {
-                    storageService.store(key, new ObfuscationTag(typeName, id, value));
-                    return id;
-                }
-                if (existing.get().getOriginalValue().equals(value)) {
-                    return id;
-                }
-                if (id.length() >= maxLength) {
-                    throw new ObfuscationException("Unable to assign a unique tag id for type " + typeName);
-                }
-                id = fullHash.substring(0, id.length() + 1);
+        while (true) {
+            String id = fullHash.substring(0, length);
+            String key = scopedKey(scopeId, id);
+            Optional<ObfuscationTag> existing = storageService.storeIfAbsent(key, new ObfuscationTag(typeName, id, value));
+            if (existing.isEmpty()) {
+                scope.recordCreated(key);
+                return id;
             }
+            if (existing.get().getOriginalValue().equals(value)) {
+                storageService.refresh(key);
+                return id;
+            }
+            if (length >= maxLength) {
+                throw new ObfuscationException("Unable to assign a unique tag id for type " + typeName);
+            }
+            length++;
         }
     }
 
     private String formatTag(String typeName, String id) {
         return config.getTagOpen() + config.getRedactedPrefix() + ":" + typeName + config.getTagSeparator() + id + config.getTagClose();
+    }
+
+    /** Returns the placeholder for the tag as it appears in obfuscated text. */
+    public String formatTag(ObfuscationTag tag) {
+        return formatTag(tag.getType(), tag.getHash());
     }
 
     String restoreScoped(String text, String scopeId) {
@@ -221,7 +236,7 @@ public class ObfuscationEngine {
         }
 
         Matcher matcher = tagPattern.matcher(text);
-        StringBuffer result = new StringBuffer();
+        StringBuilder result = new StringBuilder();
 
         while (matcher.find()) {
             String id = matcher.group(2);
@@ -248,7 +263,7 @@ public class ObfuscationEngine {
     }
 
     public List<ObfuscationTag> extractTags(String text) {
-        return extractTagsScoped(text, defaultScopeId());
+        return defaultScope().extractTags(text);
     }
 
     List<ObfuscationTag> extractTagsScoped(String text, String scopeId) {
@@ -308,148 +323,100 @@ public class ObfuscationEngine {
     }
 
     public String generateSystemPrompt(String language) {
-        String prefix = config.getRedactedPrefix();
-        String separator = config.getTagSeparator();
-        String tagOpen = config.getTagOpen();
-        String tagClose = config.getTagClose();
-        String tagFormat = tagOpen + prefix + ":TYPE" + separator + "HASH" + tagClose;
-        String exampleEmailTag = tagOpen + prefix + ":EMAIL" + separator + "e5a3b2" + tagClose;
-
-        String template;
-        if ("es".equalsIgnoreCase(language)) {
-            template = """
-                    IMPORTANTE: Esta conversación puede contener marcadores de datos sensibles ofuscados en el formato %s. NO son errores ni artefactos - son marcadores de seguridad intencionales que protegen Información Personal Identificable (PII).
-
-                    REGLAS:
-                    1. NUNCA modifiques, reformatees, elimines o intentes "corregir" estos marcadores
-                    2. NUNCA preguntes al usuario sobre ellos o expliques qué podrían ser
-                    3. Trátalos como identificadores opacos - los valores originales se restaurarán después de tu respuesta
-                    4. Refiérete a ellos naturalmente como si fueran los datos originales
-                    5. Si necesitas repetir los datos en tu respuesta, usa el marcador EXACTO tal cual
-                    6. NO intentes decodificar, adivinar o reconstruir los valores originales
-
-                    LLAMADAS A HERRAMIENTAS:
-                    Cuando invoques herramientas, usa los marcadores exactamente como aparecen en la conversación.
-                    El sistema restaurará automáticamente los valores originales antes de ejecutar la herramienta.
-
-                    Ejemplo de llamada a herramienta con datos ofuscados:
-                    - El usuario dice: "Envía email a %s"
-                    - Tú llamas a la herramienta: sendEmail(to="%s", subject="Hola")
-                    - El sistema lo restaura a: sendEmail(to="usuario@ejemplo.com", subject="Hola")
-
-                    Tu tarea es procesar la SOLICITUD, no los marcadores. El sistema se encargará de restaurar los valores originales.
-                    """;
-        } else {
-            template = """
-                    IMPORTANT: This conversation may contain obfuscated sensitive data markers in the format %s. These are NOT errors or artifacts - they are intentional security placeholders protecting Personally Identifiable Information (PII).
-
-                    RULES:
-                    1. NEVER modify, reformat, remove, or attempt to "fix" these placeholders
-                    2. NEVER ask the user about them or explain what they might be
-                    3. Treat them as opaque identifiers - the original values will be restored after your response
-                    4. Reference them naturally as if they were the original data
-                    5. If you need to repeat the data in your response, use the EXACT placeholder as-is
-                    6. Do NOT try to decode, guess, or reconstruct the original values
-
-                    TOOL CALLS:
-                    When you invoke tools, use the placeholders exactly as they appear in the conversation.
-                    The system will automatically restore the original values before the tool is executed.
-
-                    Example of a tool call with obfuscated data:
-                    - User says: "Send email to %s"
-                    - You call tool: sendEmail(to="%s", subject="Hello")
-                    - The system restores it to: sendEmail(to="user@example.com", subject="Hello")
-
-                    Your task is to process the REQUEST, not the placeholders. The system will handle restoration of original values.
-                    """;
-        }
-
-        return String.format(template, tagFormat, exampleEmailTag, exampleEmailTag);
+        return SystemPromptGenerator.generate(config, language);
     }
 
+    /**
+     * Serializes the object to JSON and obfuscates it in the default scope. See
+     * {@link ObfuscationScope#obfuscateObject(Object)}.
+     */
     public String ofuscarObjeto(Object objeto) {
-        if (objeto == null) {
+        return defaultScope().obfuscateObject(objeto);
+    }
+
+    public String ofuscarObjetoJson(String json) {
+        return defaultScope().obfuscateJson(json);
+    }
+
+    public <T> T restaurarObjeto(String json, Class<T> clazz) {
+        return defaultScope().restoreObject(json, clazz);
+    }
+
+    public String restaurarObjetoJson(String json) {
+        return defaultScope().restoreJson(json);
+    }
+
+    String obfuscateObjectScoped(Object object, ObfuscationScope scope) {
+        if (object == null) {
             return null;
         }
-
         try {
-            String json = JSON_MAPPER.writeValueAsString(objeto);
-            return ofuscar(json);
+            return obfuscateJsonScoped(JSON_MAPPER.writeValueAsString(object), true, scope);
         } catch (JsonProcessingException e) {
             throw new ObfuscationException("Error serializing object to JSON", e);
         }
     }
 
-    public String ofuscarObjetoJson(String json) {
-        return obfuscateJsonScoped(json, defaultScopeId());
-    }
-
-    String obfuscateJsonScoped(String json, String scopeId) {
-        if (json == null || json.isEmpty()) {
-            return json;
-        }
-
-        try {
-            JsonNode node = JSON_MAPPER.readTree(json);
-            transformTextNodes(node, text -> obfuscateScoped(text, scopeId));
-            return JSON_MAPPER.writeValueAsString(node);
-        } catch (JsonProcessingException e) {
-            throw new ObfuscationException("Error processing JSON", e);
-        }
-    }
-
-    public <T> T restaurarObjeto(String json, Class<T> clazz) {
+    <T> T restoreObjectScoped(String json, Class<T> type, String scopeId) {
         if (json == null || json.isEmpty()) {
             return null;
         }
-
         try {
-            String restaurado = restaurar(json);
-            return JSON_MAPPER.readValue(restaurado, clazz);
+            return JSON_MAPPER.readValue(restoreJsonScoped(json, scopeId), type);
         } catch (JsonProcessingException e) {
             throw new ObfuscationException("Error deserializing JSON to object", e);
         }
     }
 
-    public String restaurarObjetoJson(String json) {
-        return restoreJsonScoped(json, defaultScopeId());
+    String obfuscateJsonScoped(String json, boolean includeNumbersAndKeys, ObfuscationScope scope) {
+        return transformJson(json, text -> obfuscateScoped(text, scope), includeNumbersAndKeys, includeNumbersAndKeys);
     }
 
     String restoreJsonScoped(String json, String scopeId) {
+        return transformJson(json, text -> restoreScoped(text, scopeId), false, true);
+    }
+
+    private String transformJson(String json, UnaryOperator<String> transform, boolean numbers, boolean keys) {
         if (json == null || json.isEmpty()) {
             return json;
         }
-
         try {
             JsonNode node = JSON_MAPPER.readTree(json);
-            transformTextNodes(node, text -> restoreScoped(text, scopeId));
-            return JSON_MAPPER.writeValueAsString(node);
+            return JSON_MAPPER.writeValueAsString(transformNode(node, transform, numbers, keys));
         } catch (JsonProcessingException e) {
             throw new ObfuscationException("Error processing JSON", e);
         }
     }
 
-    private void transformTextNodes(JsonNode node, java.util.function.UnaryOperator<String> transform) {
-        if (node.isObject()) {
-            ObjectNode objectNode = (ObjectNode) node;
-            for (Map.Entry<String, JsonNode> entry : objectNode.properties()) {
-                JsonNode value = entry.getValue();
-                if (value.isTextual()) {
-                    entry.setValue(TextNode.valueOf(transform.apply(value.asText())));
-                } else if (value.isObject() || value.isArray()) {
-                    transformTextNodes(value, transform);
-                }
-            }
-        } else if (node.isArray()) {
-            ArrayNode arrayNode = (ArrayNode) node;
-            for (int i = 0; i < arrayNode.size(); i++) {
-                JsonNode element = arrayNode.get(i);
-                if (element.isTextual()) {
-                    arrayNode.set(i, new TextNode(transform.apply(element.asText())));
-                } else if (element.isObject() || element.isArray()) {
-                    transformTextNodes(element, transform);
-                }
-            }
+    /**
+     * Returns the transformed node. String values are always transformed; numbers and
+     * object keys only when requested. A number becomes a string only if its text
+     * actually changes.
+     */
+    private JsonNode transformNode(JsonNode node, UnaryOperator<String> transform, boolean numbers, boolean keys) {
+        if (node.isTextual() || numbers && node.isNumber()) {
+            String text = node.asText();
+            String transformed = transform.apply(text);
+            return transformed.equals(text) ? node : TextNode.valueOf(transformed);
         }
+        if (node.isArray()) {
+            ArrayNode array = (ArrayNode) node;
+            for (int i = 0; i < array.size(); i++) {
+                array.set(i, transformNode(array.get(i), transform, numbers, keys));
+            }
+            return array;
+        }
+        if (node.isObject()) {
+            ObjectNode object = (ObjectNode) node;
+            Map<String, JsonNode> transformed = new LinkedHashMap<>();
+            for (Map.Entry<String, JsonNode> entry : object.properties()) {
+                String key = keys ? transform.apply(entry.getKey()) : entry.getKey();
+                transformed.put(key, transformNode(entry.getValue(), transform, numbers, keys));
+            }
+            object.removeAll();
+            object.setAll(transformed);
+            return object;
+        }
+        return node;
     }
 }

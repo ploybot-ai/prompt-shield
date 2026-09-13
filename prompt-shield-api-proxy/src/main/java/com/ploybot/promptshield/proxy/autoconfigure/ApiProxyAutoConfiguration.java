@@ -4,10 +4,13 @@ import com.ploybot.promptshield.config.PromptShieldProperties;
 import com.ploybot.promptshield.engine.ObfuscationEngine;
 import com.ploybot.promptshield.model.ObfuscationConfig;
 import com.ploybot.promptshield.proxy.client.AiProviderClient;
+import com.ploybot.promptshield.proxy.controller.ProxyAuthorization;
 import com.ploybot.promptshield.proxy.controller.ProxyController;
 import com.ploybot.promptshield.proxy.service.ProxyService;
 import com.ploybot.promptshield.storage.InMemoryStorageService;
 import com.ploybot.promptshield.storage.StorageService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -15,11 +18,19 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 
+import java.time.Duration;
+
+/**
+ * OpenAI-compatible proxy endpoints. Only active with {@code prompt-shield.proxy.enabled=true},
+ * so adding this module to an application never exposes them by accident.
+ */
 @AutoConfiguration
 @ConditionalOnClass(ObfuscationEngine.class)
-@ConditionalOnProperty(prefix = "prompt-shield.proxy", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "prompt-shield.proxy", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(PromptShieldProperties.class)
 public class ApiProxyAutoConfiguration {
+
+    private static final Logger logger = LoggerFactory.getLogger(ApiProxyAutoConfiguration.class);
 
     private final PromptShieldProperties properties;
 
@@ -30,45 +41,26 @@ public class ApiProxyAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public ObfuscationConfig promptShieldObfuscationConfig() {
-        ObfuscationConfig config = new ObfuscationConfig();
-        config.setHashAlgorithm(properties.getHashAlgorithm());
-        config.setHashLength(properties.getHashLength());
-        config.setRedactedPrefix(properties.getRedactedPrefix());
-        config.setTagSeparator(properties.getTagSeparator());
-        config.setTagOpen(properties.getTagOpen());
-        config.setTagClose(properties.getTagClose());
-        config.setStorageType(properties.getStorage().getType());
-        config.setEnabled(properties.isEnabled());
-        config.setServiceKeysEnabled(properties.isServiceKeysEnabled());
-        config.setChecksumValidationEnabled(properties.isChecksumValidationEnabled());
-        config.setHmacSecret(properties.getHmacSecret());
-
-        for (var entry : properties.getCustomTypes().entrySet()) {
-            config.addCustomType(entry.getKey(), entry.getValue().getPattern());
-        }
-        return config;
+        return properties.toObfuscationConfig();
     }
 
     @Bean
     @ConditionalOnMissingBean(StorageService.class)
     @ConditionalOnProperty(prefix = "prompt-shield.storage", name = "type", havingValue = "memory", matchIfMissing = true)
     public StorageService promptShieldStorageService() {
-        return new InMemoryStorageService();
+        return new InMemoryStorageService(Duration.ofHours(properties.getStorage().getMemory().getTtlHours()));
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public ObfuscationEngine promptShieldObfuscationEngine(ObfuscationConfig config, StorageService storageService) {
-        return new ObfuscationEngine(config, storageService);
+    public ObfuscationEngine promptShieldObfuscationEngine(ObfuscationConfig config, StorageService promptShieldStorageService) {
+        return new ObfuscationEngine(config, promptShieldStorageService);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public AiProviderClient aiProviderClient() {
-        return new AiProviderClient(
-                properties.getProxy().getProvider().getBaseUrl(),
-                properties.getProxy().getProvider().getApiKey()
-        );
+        return new AiProviderClient(properties.getProxy().getProvider().getBaseUrl());
     }
 
     @Bean
@@ -85,7 +77,22 @@ public class ApiProxyAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ProxyController proxyController(ProxyService proxyService) {
-        return new ProxyController(proxyService);
+    public ProxyAuthorization proxyAuthorization() {
+        PromptShieldProperties.ProxyProperties proxyProps = properties.getProxy();
+        ProxyAuthorization authorization = new ProxyAuthorization(
+                proxyProps.getClientTokens(),
+                proxyProps.getProvider().getApiKey(),
+                proxyProps.isAllowUnauthenticated());
+        if (authorization.exposesProviderKeyWithoutAuthentication()) {
+            logger.warn("Prompt Shield proxy: anyone who can reach it can use the provider API key "
+                    + "(allow-unauthenticated=true without client-tokens)");
+        }
+        return authorization;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ProxyController proxyController(ProxyService proxyService, ProxyAuthorization proxyAuthorization) {
+        return new ProxyController(proxyService, proxyAuthorization);
     }
 }

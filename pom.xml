@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.0</version>
+        <version>4.1.1</version>
         <relativePath/>
     </parent>
 
@@ -29,8 +29,8 @@
 
     <developers>
         <developer>
-            <name>Tu Nombre</name>
-            <email>tu@email.com</email>
+            <name>admin</name>
+            <email>admin@ploybot.com</email>
         </developer>
     </developers>
 
@@ -100,17 +100,6 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
-
-    <repositories>
-        <repository>
-            <id>spring-milestones</id>
-            <name>Spring Milestones</name>
-            <url>https://repo.spring.io/milestone</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </repository>
-    </repositories>
 
     <distributionManagement>
         <snapshotRepository>

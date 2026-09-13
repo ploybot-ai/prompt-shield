@@ -2,8 +2,8 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Java](https://img.shields.io/badge/Java-17+-green.svg)](https://www.oracle.com/java/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.0-green.svg)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.0-green.svg)](https://spring.io/projects/spring-ai)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.1-green.svg)](https://spring.io/projects/spring-boot)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-2.0.1-green.svg)](https://spring.io/projects/spring-ai)
 
 Library for obfuscating sensitive data in AI prompts. Protect PII (Personally Identifiable Information) before sending to LLMs.
 
@@ -53,7 +53,7 @@ The AI receives placeholders like `~REDACTED:DNI#1c9f96~` instead of actual DNI 
 
 ## Features
 
-- **Obfuscate sensitive data**: DNI, NIE, email, phone, and custom types
+- **Obfuscate sensitive data**: DNI, NIE, email, phone, IBAN, postal code and custom types
 - **Service key detection**: OpenAI, Anthropic, AWS, GitHub, Stripe, and 11 more services
 - **Bidirectional**: Obfuscate prompts and restore original values in responses
 - **JSON support**: Obfuscate objects with type preservation
@@ -70,30 +70,30 @@ The AI receives placeholders like `~REDACTED:DNI#1c9f96~` instead of actual DNI 
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-core</artifactId>
-    <version>1.3.0</version>
+    <version>1.4.0</version>
 </dependency>
 
 <!-- Spring Boot Starter (optional) -->
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-spring-boot-starter</artifactId>
-    <version>1.3.0</version>
+    <version>1.4.0</version>
 </dependency>
 
 <!-- Spring AI Advisor (optional) -->
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-spring-ai-advisor</artifactId>
-    <version>1.3.0</version>
+    <version>1.4.0</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'com.ploybot:prompt-shield-core:1.3.0'
-implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.3.0'
-implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.3.0'
+implementation 'com.ploybot:prompt-shield-core:1.4.0'
+implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.4.0'
+implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.4.0'
 ```
 
 ## Usage
@@ -141,6 +141,26 @@ String obfuscated = scope.obfuscateJson(json);
 String restored = scope.restoreJson(obfuscated);
 ```
 
+`obfuscateJson(json)` only touches string values, so amounts and ids are never turned
+into `CODIGO_POSTAL` or `TELEFONO` tags. Use `obfuscateJson(json, true)` to also cover
+numeric values and object keys (a phone stored as a number, a map keyed by email);
+numbers that contain sensitive data then become strings.
+
+### Short-lived scopes
+
+Each `ObfuscationScope` remembers the mappings it created. When a scope only lives for
+one request, release them once the response has been restored:
+
+```java
+ObfuscationScope scope = engine.forScope("request-" + UUID.randomUUID());
+try {
+    String answer = callModel(scope.obfuscate(prompt));
+    return scope.restore(answer);
+} finally {
+    scope.removeCreatedMappings();
+}
+```
+
 ### Object Obfuscation
 
 ```java
@@ -163,23 +183,56 @@ prompt-shield:
   hash-length: 6
   storage:
     type: memory               # memory | redis | jpa
+    memory:
+      ttl-hours: 24            # 0 keeps mappings forever
   redacted-prefix: "REDACTED"  # Change to "OBFUSCADO", "OCULTO", etc.
   tag-separator: "#"            # Change to "_", "-", etc.
   service-keys-enabled: true   # false to disable service key detection
   checksum-validation-enabled: true  # validate DNI/NIE/IBAN control digits to avoid false positives
   hmac-secret: ${PROMPT_SHIELD_HMAC_SECRET}  # required for persistent/distributed storage
   custom-types:
-    CODIGO_POSTAL:
-      pattern: '\d{5}'
-    N_CUENTA:
-      pattern: 'ES\d{22}'
+    MATRICULA:
+      pattern: '\b\d{4}[A-Z]{3}\b'
+    "[REFERENCIA_PEDIDO]":     # brackets keep the underscore in the name
+      pattern: '\bPED-\d{6}\b'
 ```
+
+Custom type names must match `[A-Z][A-Z0-9_]*`; any other name is rejected at startup.
+Spring Boot drops underscores from map keys unless they are written in bracket notation.
 
 Tag identifiers are derived with a keyed HMAC rather than a plain hash, preventing
 offline brute-force recovery of small input spaces. If `hmac-secret` is omitted, a
 random key is generated for that engine instance. Always configure the same strong
 secret on every instance when using Redis/JPA, multiple application instances, or
 restoration after a restart. Rotating this secret invalidates existing mappings.
+
+### Migrating to 1.4
+
+- Detection runs once over the original text: a pattern can no longer match inside a
+  tag produced by another type or already present in the text. Custom patterns such
+  as `\d{5}` used to corrupt about 12% of the tags.
+- New and wider formats: phones with spaces, hyphens or `+34`/`0034`; DNI with dots or
+  hyphen (`12.345.678-Z`); NIE with hyphens; Spanish IBANs in groups of four; any
+  other country's IBAN (`IBAN` type); OpenAI service-account, admin and legacy keys.
+  DNI and NIE now require word boundaries, so a longer reference is left alone.
+- The in-memory storage created by the auto-configuration expires mappings after
+  `prompt-shield.storage.memory.ttl-hours` (24 by default) since their last use.
+- `PromptShieldAdvisor` also obfuscates the application's system prompt and tool
+  results (Spring AI 2.0 runs the tool loop through the advisor chain). Disable either
+  with `advisor.obfuscate-system-messages` or `advisor.obfuscate-tool-responses`.
+  Requests without a scope id get a per-request scope that is released afterwards.
+- `@Obfuscate` works: the aspect was never registered. It now also supports class
+  level and `restore = true` uses a per-call scope.
+- JPA storage: keys are stored as their SHA-256 (long scope ids no longer overflow the
+  column); the table is created by `prompt-shield.storage.jpa.initialize-schema`
+  instead of a Flyway migration inside the jar (it clashed with the application's
+  `V1`); expired rows are ignored and deleted every `cleanup-interval-minutes`; the
+  application's own entity and repository scanning is no longer replaced. If you
+  applied the old `V1__create_obfuscation_tags_table.sql` with Flyway, keep a copy in
+  your migrations.
+- Redis storage uses `SET NX` and renews the TTL when a mapping is reused.
+- `ObfuscationTag#getTag()` is deprecated: its `<TYPE_hash>` form never matched the
+  placeholders. Use `ObfuscationEngine#formatTag(tag)`.
 
 ### Migrating to 1.3
 
@@ -204,14 +257,28 @@ public class MyService {
         // prompt is automatically obfuscated
         return aiClient.call(prompt);
     }
-    
+
     @Obfuscate(types = {"DNI", "EMAIL"})
     public String processSpecific(String prompt) {
         // Only DNI and EMAIL are obfuscated
         return aiClient.call(prompt);
     }
+
+    @Obfuscate(restore = true)
+    public String ask(String prompt) {
+        // Tags in the returned String are restored and the mappings released
+        return aiClient.call(prompt);
+    }
+
+    public String mixed(@Obfuscate String prompt, String untouched) {
+        return aiClient.call(prompt + untouched);
+    }
 }
 ```
+
+The annotation can also be placed on a class. Only `String` arguments are obfuscated.
+Without `restore`, tags are created in the engine's default scope, shared by every
+caller. Disable the aspect with `prompt-shield.annotation.enabled=false`.
 
 ## Storage Backends
 
@@ -231,7 +298,7 @@ prompt-shield:
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-storage-redis</artifactId>
-    <version>1.3.0</version>
+    <version>1.4.0</version>
 </dependency>
 ```
 
@@ -255,7 +322,7 @@ spring:
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-storage-jpa</artifactId>
-    <version>1.3.0</version>
+    <version>1.4.0</version>
 </dependency>
 ```
 
@@ -264,8 +331,10 @@ prompt-shield:
   storage:
     type: jpa
     jpa:
-      ttl-hours: 24
+      ttl-hours: 24                 # since the mapping was last used
       cleanup-enabled: true
+      cleanup-interval-minutes: 60
+      initialize-schema: embedded   # embedded | always | never
 
 spring:
   datasource:
@@ -291,7 +360,15 @@ prompt-shield:
     restore-on-response: true
     inject-system-prompt: true  # Auto-inject system prompt to preserve placeholders
     # system-prompt: "Your custom system prompt"  # Optional custom prompt
+    obfuscate-system-messages: true   # the application's system prompt text
+    obfuscate-tool-responses: true    # tool results before they reach the model
 ```
+
+The advisor obfuscates system, user and assistant messages, tool call arguments and
+tool results, and restores the response. Keep its order above Spring AI's
+`ToolCallingAdvisor.DEFAULT_ORDER` (the default 0 is): every iteration of the tool loop
+then goes through it, so tools receive the real values and the model never sees their
+results in clear.
 
 ### System Prompt
 
@@ -344,18 +421,21 @@ public class AIService {
 
 | Type | Pattern | Example |
 |------|---------|---------|
-| DNI | `\d{8}[A-Za-z]` | 12345678Z |
-| NIE | `[XYZxyz]\d{7}[A-Za-z]` | X1234567A |
+| DNI | 8 digits (optionally `12.345.678`) + optional `-` + letter, checksum | 12345678Z, 12.345.678-Z |
+| NIE | `X`/`Y`/`Z` + 7 digits + letter, optional hyphens, checksum | X1234567L, X-1234567-L |
 | EMAIL | `[\w.+-]+@[\w.-]+\.\w{2,}` | user@email.com |
-| TELEFONO | `\b\d{9}\b` | 612345678 |
+| N_CUENTA | Spanish IBAN, compact or in groups of four, checksum | ES91 2100 0418 4502 0005 1332 |
+| IBAN | Any other IBAN, compact or grouped, checksum | DE89 3704 0044 0532 0130 00 |
+| TELEFONO | Spanish phone with spaces, hyphens or `+34`/`0034`, or any 9 digits | +34 612 34 56 78 |
 | CODIGO_POSTAL | `\b\d{5}\b` | 28001 |
-| N_CUENTA | `ES\d{22}` | ES1234567890123456789012 |
+
+Types are applied in this order; when two matches overlap, the earlier type wins.
 
 ### Service Keys (API Keys)
 
 | Type | Pattern | Example |
 |------|---------|---------|
-| OPENAI_API_KEY | `sk-proj-[A-Za-z0-9_-]{20,}` | sk-proj-abc123... |
+| OPENAI_API_KEY | `sk-` (optionally `proj-`, `svcacct-`, `admin-`) + 20 or more characters including a digit | sk-proj-abc123... |
 | ANTHROPIC_API_KEY | `sk-ant-[A-Za-z0-9_-]{20,}` | sk-ant-api03-... |
 | GOOGLE_AI_KEY | `AIza[A-Za-z0-9_-]{35}` | AIzaSyA1b2C3d4... |
 | HUGGINGFACE_TOKEN | `hf_[A-Za-z0-9]{34}` | hf_abc123... |
@@ -378,11 +458,14 @@ public class AIService {
 
 ```java
 ObfuscationConfig config = new ObfuscationConfig();
-config.addCustomType("CODIGO_POSTAL", "\\d{5}");
-config.addCustomType("N_CUENTA", "ES\\d{22}");
+config.addCustomType("MATRICULA", "\\b\\d{4}[A-Z]{3}\\b");
+config.addCustomType("REFERENCIA_PEDIDO", "\\bPED-\\d{6}\\b");
 
 ObfuscationEngine engine = new ObfuscationEngine(config);
 ```
+
+Names must match `[A-Z][A-Z0-9_]*`. Custom types run after the built-in ones, in the
+order they were added.
 
 ## Tag Format
 
@@ -430,7 +513,6 @@ prompt-shield/
 │   ├── controller/                  # ProxyController
 │   ├── client/                      # AiProviderClient
 │   ├── service/                     # ProxyService
-│   ├── model/                       # ChatCompletionRequest/Response
 │   └── autoconfigure/               # Auto-configuration
 │
 └── prompt-shield-example/           # Example project
@@ -443,7 +525,8 @@ An OpenAI-compatible API proxy that automatically obfuscates PII before forwardi
 ### Features
 
 - **OpenAI-compatible**: Works with any provider that supports OpenAI API format
-- **Transparent proxy**: Client sends API key and model, proxy forwards to provider
+- **Transparent proxy**: Forwards the raw request, so every OpenAI field is kept
+- **Access control**: Proxy tokens, or the client's own provider key
 - **Automatic obfuscation**: PII is obfuscated before sending to the AI provider
 - **Automatic restoration**: Original values are restored in the response
 - **Tool call support**: Tool call arguments are also restored
@@ -456,9 +539,15 @@ An OpenAI-compatible API proxy that automatically obfuscates PII before forwardi
 # Pull from Docker Hub
 docker pull ploybot/prompt-shield-api-proxy:latest
 
-# Run with Docker (transparent mode - no API key needed)
+# Run with Docker (clients send their own provider key)
 docker run -p 8080:8080 \
   -e PROMPT_SHIELD_PROXY_PROVIDER_BASE_URL=https://api.openai.com \
+  ploybot/prompt-shield-api-proxy:latest
+
+# Or keep the provider key on the server and give clients proxy tokens
+docker run -p 8080:8080 \
+  -e PROMPT_SHIELD_PROXY_PROVIDER_API_KEY=sk-server-key \
+  -e PROMPT_SHIELD_PROXY_CLIENT_TOKENS=token-a,token-b \
   ploybot/prompt-shield-api-proxy:latest
 
 # Or use docker-compose
@@ -524,22 +613,24 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 
 ### Configuration (Optional)
 
-If you want to set a default API key or base URL:
-
 ```yaml
 # application.yml
 prompt-shield:
   proxy:
-    enabled: true
+    enabled: true                        # off by default when used as a library
     base-path: /v1
+    inject-system-prompt: true
+    restore-on-response: true
+    client-tokens: []                    # required bearer tokens; server key used upstream
+    allow-unauthenticated: false         # let anonymous requests use the server key
     provider:
-      base-url: https://api.openai.com  # Default provider
-      api-key:                           # Optional default key
-      model: gpt-4o-mini                 # Optional default model
-    obfuscation:
-      inject-system-prompt: true
-      restore-on-response: true
+      base-url: https://api.openai.com
+      api-key:                           # server-side provider key
 ```
+
+Without `client-tokens`, a client's own `Authorization` header is forwarded. A request
+without one is rejected when a provider key is configured, unless
+`allow-unauthenticated` is set.
 
 ### Supported Providers
 

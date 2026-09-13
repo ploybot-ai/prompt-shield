@@ -1,7 +1,9 @@
+-- Prompt Shield JPA storage. Valid for H2 and PostgreSQL; copy it into your own
+-- migrations (Flyway, Liquibase) when prompt-shield.storage.jpa.initialize-schema=never.
 CREATE TABLE IF NOT EXISTS obfuscation_tags (
     hash VARCHAR(64) PRIMARY KEY,
     type VARCHAR(50) NOT NULL,
-    original_value TEXT NOT NULL,
+    original_value VARCHAR(4096) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

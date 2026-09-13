@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.HexFormat;
 
 /**
  * Generates tag identifiers using a keyed HMAC over the input value.
@@ -21,9 +22,13 @@ import java.security.SecureRandom;
  */
 public class HashGenerator {
 
+    private static final HexFormat HEX = HexFormat.of();
+
     private final String algorithm;
     private final int hashLength;
     private final SecretKeySpec key;
+    /** Initialized prototype; cloned per call because {@link Mac} is not thread-safe. */
+    private final Mac prototype;
 
     public HashGenerator(String algorithm, int hashLength) {
         this(algorithm, hashLength, null);
@@ -46,6 +51,7 @@ public class HashGenerator {
             keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         }
         this.key = new SecretKeySpec(keyBytes, macAlgorithm());
+        this.prototype = newMac();
     }
 
     public HashGenerator() {
@@ -54,6 +60,26 @@ public class HashGenerator {
 
     private String macAlgorithm() {
         return "Hmac" + algorithm.replace("-", "");
+    }
+
+    private Mac newMac() {
+        try {
+            Mac mac = Mac.getInstance(macAlgorithm());
+            mac.init(key);
+            return mac;
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalArgumentException("Algorithm not found: " + macAlgorithm(), e);
+        } catch (InvalidKeyException e) {
+            throw new IllegalArgumentException("Invalid HMAC key", e);
+        }
+    }
+
+    private Mac mac() {
+        try {
+            return (Mac) prototype.clone();
+        } catch (CloneNotSupportedException e) {
+            return newMac();
+        }
     }
 
     public String generate(String value) {
@@ -66,24 +92,7 @@ public class HashGenerator {
      * an identifier deterministically when a truncated prefix collides.
      */
     public String generateFull(String value) {
-        try {
-            Mac mac = Mac.getInstance(macAlgorithm());
-            mac.init(key);
-            byte[] hashBytes = mac.doFinal(value.getBytes(StandardCharsets.UTF_8));
-            return bytesToHex(hashBytes);
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("Algorithm not found: " + macAlgorithm(), e);
-        } catch (InvalidKeyException e) {
-            throw new RuntimeException("Invalid HMAC key", e);
-        }
-    }
-
-    private String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString();
+        return HEX.formatHex(mac().doFinal(value.getBytes(StandardCharsets.UTF_8)));
     }
 
     public String getAlgorithm() {
