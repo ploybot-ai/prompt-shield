@@ -57,6 +57,7 @@
         <module>prompt-shield-ner-opennlp</module>
         <module>prompt-shield-api-proxy</module>
         <module>prompt-shield-example</module>
+        <module>prompt-shield-injection-eval</module>
     </modules>
 
     <dependencyManagement>
