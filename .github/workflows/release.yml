@@ -12,6 +12,16 @@ on:
         required: false
         type: string
         default: ''
+      resume:
+        description: 'Reanudar una release cuyo tag ya existe (tras un fallo al publicar): no crea commit ni tag'
+        required: false
+        type: boolean
+        default: false
+      publish_docker:
+        description: 'Publicar la imagen Docker (desmarcar al reanudar si ya se publicó)'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   validate:
@@ -36,16 +46,24 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check tag does not exist
+      - name: Check tag
+        env:
+          RESUME: ${{ inputs.resume }}
         run: |
           if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "ERROR: El tag v${{ inputs.version }} ya existe"
+            if [[ "$RESUME" != "true" ]]; then
+              echo "ERROR: El tag v${{ inputs.version }} ya existe"
+              exit 1
+            fi
+          elif [[ "$RESUME" == "true" ]]; then
+            echo "ERROR: Para reanudar, el tag v${{ inputs.version }} debe existir"
             exit 1
           fi
 
   update-version:
     name: Update POM versions
     needs: validate
+    if: ${{ !inputs.resume }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,7 +97,9 @@ jobs:
 
   build-and-test:
     name: Build and test
-    needs: update-version
+    needs: [validate, update-version]
+    # update-version is skipped when resuming; any other result stops the release
+    if: ${{ !cancelled() && needs.validate.result == 'success' && (needs.update-version.result == 'success' || needs.update-version.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tag
@@ -108,6 +128,7 @@ jobs:
   publish-maven:
     name: Publish to Maven Central
     needs: build-and-test
+    if: ${{ !cancelled() && needs.build-and-test.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tag
@@ -127,6 +148,17 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
+      # Maven 3.10, now on the GitHub runners, leaves resolver files (maven-metadata-local.xml)
+      # in the bundle of central-publishing-maven-plugin 0.11 and Central rejects it: "Bundle
+      # has content that does NOT have a .pom file". 3.9.11 builds a valid bundle.
+      - name: Set up Maven 3.9.11
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maven.tar.gz" \
+            https://repo1.maven.org/maven2/org/apache/maven/apache-maven/3.9.11/apache-maven-3.9.11-bin.tar.gz
+          echo "bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978  $RUNNER_TEMP/maven.tar.gz" | sha512sum -c -
+          tar -xzf "$RUNNER_TEMP/maven.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"
+
       - name: Publish to Maven Central
         run: mvn -P release --batch-mode deploy -DskipTests
         env:
@@ -137,6 +169,7 @@ jobs:
   publish-docker:
     name: Publish Docker image
     needs: build-and-test
+    if: ${{ !cancelled() && needs.build-and-test.result == 'success' && inputs.publish_docker }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tag
@@ -182,6 +215,7 @@ jobs:
   github-release:
     name: Create GitHub Release
     needs: [publish-maven, publish-docker]
+    if: ${{ !cancelled() && needs.publish-maven.result == 'success' && (needs.publish-docker.result == 'success' || needs.publish-docker.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -229,6 +263,7 @@ jobs:
   bump-snapshot:
     name: Bump to next SNAPSHOT
     needs: github-release
+    if: ${{ !cancelled() && needs.github-release.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
