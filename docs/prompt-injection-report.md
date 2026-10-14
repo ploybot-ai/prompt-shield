@@ -348,7 +348,7 @@ otra vía. No se intentó sortear. **Por tanto, las defensas de integración
 adversarial independiente.** Es un riesgo residual explícito.
 
 **Ronda 3 (v3, corrección, rendimiento y falsos positivos, sin material de ataque).**
-<!-- REVIEW3 -->
+En curso al abrir la pull request; sus hallazgos se añadirán aquí y se corregirán en esta misma rama.
 
 
 ## 11. Compromisos seguridad / falsos positivos
