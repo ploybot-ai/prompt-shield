@@ -67,6 +67,16 @@ public final class ObfuscationScope {
         return engine.restoreScoped(text, scopeId);
     }
 
+    /**
+     * Restores tags except those that are part of a URL (a link, a markdown image, a
+     * {@code mailto:}), which keep their placeholder. Use it for model output that may
+     * have been influenced by untrusted content: a prompt injection can ask the model to
+     * put placeholders into an attacker's URL so that restoration hands over the data.
+     */
+    public String restoreOutsideUrls(String text) {
+        return engine.restoreScoped(text, scopeId, false, "");
+    }
+
     public boolean containsTags(String text) {
         return engine.containsTags(text);
     }
@@ -161,7 +171,12 @@ public final class ObfuscationScope {
      * stream; it is stateful and not thread-safe.
      */
     public StreamingRestorer streamingRestorer() {
-        return new StreamingRestorer(this);
+        return new StreamingRestorer(this, true);
+    }
+
+    /** Like {@link #streamingRestorer()}, leaving tags inside URLs unrestored (see {@link #restoreOutsideUrls}). */
+    public StreamingRestorer streamingRestorerOutsideUrls() {
+        return new StreamingRestorer(this, false);
     }
 
     void recordCreated(String key) {

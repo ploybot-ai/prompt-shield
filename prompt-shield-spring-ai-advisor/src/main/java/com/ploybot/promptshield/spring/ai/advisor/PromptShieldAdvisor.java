@@ -4,6 +4,10 @@ import com.ploybot.promptshield.engine.ObfuscationEngine;
 import com.ploybot.promptshield.engine.ObfuscationScope;
 import com.ploybot.promptshield.engine.StreamingRestorer;
 import com.ploybot.promptshield.engine.SystemPromptGenerator;
+import com.ploybot.promptshield.injection.ContentSource;
+import com.ploybot.promptshield.injection.InjectionAction;
+import com.ploybot.promptshield.injection.InjectionGuard;
+import com.ploybot.promptshield.injection.InjectionVerdict;
 import com.ploybot.promptshield.model.ObfuscationConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,12 +25,18 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Obfuscates sensitive data in every message sent to the model (system, user,
@@ -36,6 +46,15 @@ import java.util.UUID;
  * greater than {@code ToolCallingAdvisor.DEFAULT_ORDER}, which the default order 0
  * is): each iteration of the tool loop then passes through it, so tools receive
  * restored arguments and their results are obfuscated before reaching the model.
+ *
+ * <p>With {@link InjectionOptions}, the advisor also scans user messages, tool results
+ * and tool descriptions for prompt injection before obfuscating them (see
+ * {@link InjectionGuard}). Flagged content is reported in the response context under
+ * {@link #INJECTION_VERDICTS_KEY}, and depending on the configured actions the request
+ * is blocked ({@link com.ploybot.promptshield.injection.PromptInjectionException}) or the
+ * tool result is replaced by a notice. When untrusted content was flagged but let
+ * through, placeholders in tool call arguments and inside URLs of the response are not
+ * restored, so an injection cannot use the advisor to exfiltrate the original values.
  */
 public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
@@ -43,6 +62,8 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
     public static final String OBFUSCATION_ENGINE_KEY = "prompt-shield-engine";
     public static final String SCOPE_ID_KEY = "prompt-shield-scope-id";
+    /** Response context key holding the {@code List<InjectionVerdict>} of flagged content, when any. */
+    public static final String INJECTION_VERDICTS_KEY = "prompt-shield-injection-verdicts";
 
     /** @deprecated since 1.3.0; use {@link #SCOPE_ID_KEY}. */
     @Deprecated(since = "1.3.0")
@@ -55,6 +76,33 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     private final String systemPrompt;
     private final boolean obfuscateSystemMessages;
     private final boolean obfuscateToolResponses;
+    private final InjectionOptions injection;
+    /** Tool descriptions rarely change: their verdicts are cached. */
+    private final Map<String, InjectionVerdict> toolDefinitionVerdicts = new ConcurrentHashMap<>();
+
+    /**
+     * Prompt-injection detection settings.
+     *
+     * @param guard               detector and actions
+     * @param protectOnInjection  keep placeholders in tool call arguments and URLs when
+     *                            untrusted content was flagged but let through
+     * @param scanSystemMessages  also scan the application's system prompt
+     * @param scanToolDefinitions scan tool descriptions and input schemas (tool poisoning);
+     *                            {@code QUARANTINE} acts as {@code BLOCK} for them
+     */
+    public record InjectionOptions(InjectionGuard guard, boolean protectOnInjection, boolean scanSystemMessages,
+                                   boolean scanToolDefinitions) {
+
+        public InjectionOptions {
+            if (guard == null) {
+                throw new IllegalArgumentException("guard must not be null");
+            }
+        }
+
+        public static InjectionOptions of(InjectionGuard guard) {
+            return new InjectionOptions(guard, true, false, true);
+        }
+    }
 
     public PromptShieldAdvisor() {
         this(new ObfuscationEngine(), 0, true, true, (String) null);
@@ -86,6 +134,17 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
      */
     public PromptShieldAdvisor(ObfuscationEngine engine, int order, boolean restoreOnResponse, boolean injectSystemPrompt,
                                String systemPrompt, boolean obfuscateSystemMessages, boolean obfuscateToolResponses) {
+        this(engine, order, restoreOnResponse, injectSystemPrompt, systemPrompt, obfuscateSystemMessages,
+                obfuscateToolResponses, null);
+    }
+
+    /**
+     * @param injection prompt-injection detection, or {@code null} to disable it
+     */
+    public PromptShieldAdvisor(ObfuscationEngine engine, int order, boolean restoreOnResponse, boolean injectSystemPrompt,
+                               String systemPrompt, boolean obfuscateSystemMessages, boolean obfuscateToolResponses,
+                               InjectionOptions injection) {
+        this.injection = injection;
         this.engine = engine;
         this.order = order;
         this.restoreOnResponse = restoreOnResponse;
@@ -125,13 +184,17 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         ResolvedScope resolved = resolveScope(chatClientRequest);
         ObfuscationScope scope = resolved.scope();
         try {
-            ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest, scope);
+            InjectionGuard.Inspection inspection = newInspection();
+            ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest, scope, inspection);
 
             logUserMessage(obfuscatedRequest);
             ChatClientResponse response = callAdvisorChain.nextCall(obfuscatedRequest);
             logAssistantResponse(response);
 
-            return restoreOnResponse ? restoreResponse(response, scope) : response;
+            if (restoreOnResponse) {
+                response = restoreResponse(response, scope, isProtected(inspection));
+            }
+            return withVerdicts(response, inspection);
         } finally {
             releaseIfEphemeral(resolved);
         }
@@ -145,28 +208,110 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         return Flux.defer(() -> {
             ResolvedScope resolved = resolveScope(chatClientRequest);
             ObfuscationScope scope = resolved.scope();
-            ChatClientRequest obfuscatedRequest = obfuscateRequest(chatClientRequest, scope);
+            InjectionGuard.Inspection inspection = newInspection();
+            ChatClientRequest obfuscatedRequest;
+            try {
+                obfuscatedRequest = obfuscateRequest(chatClientRequest, scope, inspection);
+            } catch (RuntimeException e) {
+                releaseIfEphemeral(resolved);
+                return Flux.error(e);
+            }
+            boolean protect = isProtected(inspection);
 
             logUserMessage(obfuscatedRequest);
             Flux<ChatClientResponse> responseFlux = streamAdvisorChain.nextStream(obfuscatedRequest)
                     .doOnNext(this::logAssistantResponse);
 
             if (restoreOnResponse) {
-                StreamingRestorer restorer = scope.streamingRestorer();
+                StreamingRestorer restorer = protect ? scope.streamingRestorerOutsideUrls() : scope.streamingRestorer();
                 LastChunkHolder lastChunk = new LastChunkHolder();
                 responseFlux = responseFlux
                         .map(chunk -> {
-                            ChatClientResponse restored = restoreStreamChunk(chunk, restorer, scope);
+                            ChatClientResponse restored = restoreStreamChunk(chunk, restorer, scope, protect);
                             lastChunk.value = restored;
                             return restored;
                         })
                         .concatWith(Flux.defer(() -> trailingChunk(restorer, lastChunk.value)));
             }
 
+            if (inspection != null && !inspection.getFlagged().isEmpty()) {
+                List<InjectionVerdict> verdicts = inspection.getFlagged();
+                responseFlux = responseFlux.map(chunk -> chunk == null ? null
+                        : chunk.mutate().context(INJECTION_VERDICTS_KEY, verdicts).build());
+            }
             return resolved.ephemeral()
                     ? responseFlux.doFinally(signal -> releaseIfEphemeral(resolved))
                     : responseFlux;
         });
+    }
+
+    private InjectionGuard.Inspection newInspection() {
+        return injection == null ? null : injection.guard().newInspection();
+    }
+
+    private boolean isProtected(InjectionGuard.Inspection inspection) {
+        boolean protect = inspection != null && injection.protectOnInjection() && inspection.isTainted();
+        if (protect) {
+            logger.warn("PromptShieldAdvisor: untrusted content was flagged; placeholders in tool call arguments "
+                    + "and URLs of this response are not restored");
+        }
+        return protect;
+    }
+
+    private ChatClientResponse withVerdicts(ChatClientResponse response, InjectionGuard.Inspection inspection) {
+        if (response == null || inspection == null || inspection.getFlagged().isEmpty()) {
+            return response;
+        }
+        return response.mutate().context(INJECTION_VERDICTS_KEY, inspection.getFlagged()).build();
+    }
+
+    /** Logs a flagged text without its content (it may hold personal data). */
+    private void report(InjectionGuard.Decision decision) {
+        if (decision.flagged()) {
+            logger.warn("PromptShieldAdvisor: possible prompt injection ({}): {}", decision.action(),
+                    decision.verdict().summary());
+        }
+    }
+
+    private String inspect(InjectionGuard.Inspection inspection, String text, ContentSource source) {
+        if (inspection == null || text == null) {
+            return text;
+        }
+        InjectionGuard.Decision decision = inspection.inspect(text, source);
+        report(decision);
+        return decision.text();
+    }
+
+    /**
+     * Tool descriptions and schemas are written by whoever runs the tool server: an MCP
+     * server can hide instructions in them. They cannot be rewritten here, so a flagged
+     * definition under {@code QUARANTINE} blocks the request like {@code BLOCK}.
+     */
+    private void inspectToolDefinitions(ChatOptions options, InjectionGuard.Inspection inspection) {
+        if (inspection == null || !injection.scanToolDefinitions()
+                || !(options instanceof ToolCallingChatOptions toolOptions) || toolOptions.getToolCallbacks() == null) {
+            return;
+        }
+        List<InjectionVerdict> blocked = new ArrayList<>();
+        for (ToolCallback callback : toolOptions.getToolCallbacks()) {
+            ToolDefinition definition = callback.getToolDefinition();
+            String text = definition.name() + "\n" + definition.description() + "\n" + definition.inputSchema();
+            InjectionVerdict verdict = toolDefinitionVerdicts.size() < 4096
+                    ? toolDefinitionVerdicts.computeIfAbsent(text,
+                            t -> injection.guard().getDetector().analyze(t, ContentSource.TOOL_DEFINITION))
+                    : injection.guard().getDetector().analyze(text, ContentSource.TOOL_DEFINITION);
+            if (!verdict.isInjection()) {
+                continue;
+            }
+            InjectionGuard.Decision decision = inspection.inspect(text, ContentSource.TOOL_DEFINITION);
+            report(decision);
+            if (decision.action() == InjectionAction.QUARANTINE) {
+                blocked.add(decision.verdict());
+            }
+        }
+        if (!blocked.isEmpty()) {
+            throw new com.ploybot.promptshield.injection.PromptInjectionException(blocked);
+        }
     }
 
     private static final class LastChunkHolder {
@@ -240,25 +385,36 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         return singleLine.length() <= 200 ? singleLine : singleLine.substring(0, 200) + "...";
     }
 
-    private ChatClientRequest obfuscateRequest(ChatClientRequest request, ObfuscationScope scope) {
+    private ChatClientRequest obfuscateRequest(ChatClientRequest request, ObfuscationScope scope,
+                                               InjectionGuard.Inspection inspection) {
         Prompt prompt = request.prompt();
         List<Message> messages = new ArrayList<>();
         String obfuscationInstructions = injectSystemPrompt ? getEffectiveSystemPrompt() : null;
 
+        // Detection runs on the original text, before placeholders change it
+        inspectToolDefinitions(prompt.getOptions(), inspection);
         for (Message message : prompt.getInstructions()) {
             if (message instanceof SystemMessage systemMessage) {
+                if (injection != null && injection.scanSystemMessages()) {
+                    inspect(inspection, systemMessage.getText(), ContentSource.SYSTEM);
+                }
                 messages.add(obfuscateSystemMessage(systemMessage, scope, obfuscationInstructions));
             } else if (message instanceof UserMessage userMessage) {
+                String text = inspect(inspection, userMessage.getText(), ContentSource.USER);
                 messages.add(userMessage.mutate()
-                        .text(scope.obfuscate(userMessage.getText()))
+                        .text(scope.obfuscate(text))
                         .build());
             } else if (message instanceof AssistantMessage assistantMessage) {
                 messages.add(obfuscateAssistantMessage(assistantMessage, scope));
-            } else if (message instanceof ToolResponseMessage toolResponseMessage && obfuscateToolResponses) {
-                messages.add(obfuscateToolResponseMessage(toolResponseMessage, scope));
+            } else if (message instanceof ToolResponseMessage toolResponseMessage) {
+                ToolResponseMessage inspected = inspectToolResponseMessage(toolResponseMessage, inspection);
+                messages.add(obfuscateToolResponses ? obfuscateToolResponseMessage(inspected, scope) : inspected);
             } else {
                 messages.add(message);
             }
+        }
+        if (inspection != null) {
+            inspection.throwIfBlocked();
         }
 
         if (obfuscationInstructions != null && messages.stream().noneMatch(m -> m instanceof SystemMessage)) {
@@ -297,6 +453,21 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
                 .build();
     }
 
+    /** Scans each tool result; quarantined results are replaced by a notice. */
+    private ToolResponseMessage inspectToolResponseMessage(ToolResponseMessage message, InjectionGuard.Inspection inspection) {
+        if (inspection == null) {
+            return message;
+        }
+        boolean changed = false;
+        List<ToolResponseMessage.ToolResponse> responses = new ArrayList<>();
+        for (ToolResponseMessage.ToolResponse r : message.getResponses()) {
+            String data = inspect(inspection, r.responseData(), ContentSource.TOOL_RESULT);
+            changed |= data != null && !data.equals(r.responseData());
+            responses.add(new ToolResponseMessage.ToolResponse(r.id(), r.name(), data));
+        }
+        return changed ? ToolResponseMessage.builder().responses(responses).metadata(message.getMetadata()).build() : message;
+    }
+
     /** Tool results are a major source of personal data (customer records, emails...). */
     private ToolResponseMessage obfuscateToolResponseMessage(ToolResponseMessage message, ObfuscationScope scope) {
         List<ToolResponseMessage.ToolResponse> responses = message.getResponses().stream()
@@ -309,7 +480,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
                 .build();
     }
 
-    private ChatClientResponse restoreResponse(ChatClientResponse response, ObfuscationScope scope) {
+    private ChatClientResponse restoreResponse(ChatClientResponse response, ObfuscationScope scope, boolean protect) {
         if (response == null || response.chatResponse() == null) {
             return response;
         }
@@ -327,7 +498,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         boolean anyRestored = false;
         List<Generation> restoredGenerations = new ArrayList<>(generations.size());
         for (Generation generation : generations) {
-            Generation restored = restoreGeneration(generation, scope);
+            Generation restored = restoreGeneration(generation, scope, protect);
             anyRestored |= restored != generation;
             restoredGenerations.add(restored);
         }
@@ -343,7 +514,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
                 .build();
     }
 
-    private Generation restoreGeneration(Generation generation, ObfuscationScope scope) {
+    private Generation restoreGeneration(Generation generation, ObfuscationScope scope, boolean protect) {
         AssistantMessage output = generation.getOutput();
         if (output == null) {
             return generation;
@@ -356,10 +527,10 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
             return generation;
         }
 
-        String restoredText = hasTagsInText ? safeRestore(text, scope) : text;
+        String restoredText = hasTagsInText ? safeRestore(text, scope, protect) : text;
         List<AssistantMessage.ToolCall> restoredToolCalls = output.getToolCalls().stream()
-                .map(tc -> new AssistantMessage.ToolCall(tc.id(), tc.type(), tc.name(),
-                        safeRestore(tc.arguments(), scope)))
+                .map(tc -> protect ? tc : new AssistantMessage.ToolCall(tc.id(), tc.type(), tc.name(),
+                        safeRestore(tc.arguments(), scope, false)))
                 .toList();
 
         AssistantMessage restoredOutput = AssistantMessage.builder()
@@ -371,7 +542,8 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         return new Generation(restoredOutput, generation.getMetadata());
     }
 
-    private ChatClientResponse restoreStreamChunk(ChatClientResponse chunk, StreamingRestorer restorer, ObfuscationScope scope) {
+    private ChatClientResponse restoreStreamChunk(ChatClientResponse chunk, StreamingRestorer restorer, ObfuscationScope scope,
+                                                  boolean protect) {
         if (chunk == null || chunk.chatResponse() == null) {
             return chunk;
         }
@@ -392,8 +564,8 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
         String emittableText = hasText ? restorer.process(text) : text;
         List<AssistantMessage.ToolCall> restoredToolCalls = output.getToolCalls().stream()
-                .map(tc -> new AssistantMessage.ToolCall(tc.id(), tc.type(), tc.name(),
-                        safeRestore(tc.arguments(), scope)))
+                .map(tc -> protect ? tc : new AssistantMessage.ToolCall(tc.id(), tc.type(), tc.name(),
+                        safeRestore(tc.arguments(), scope, false)))
                 .toList();
 
         AssistantMessage restoredOutput = AssistantMessage.builder()
@@ -445,9 +617,9 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
                 : new ChatResponse(generations);
     }
 
-    private String safeRestore(String text, ObfuscationScope scope) {
+    private String safeRestore(String text, ObfuscationScope scope, boolean outsideUrlsOnly) {
         try {
-            return scope.restore(text);
+            return outsideUrlsOnly ? scope.restoreOutsideUrls(text) : scope.restore(text);
         } catch (Exception e) {
             logger.warn("PromptShieldAdvisor: Could not restore text: {}", e.getMessage());
             return text;
@@ -472,5 +644,9 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
     public boolean isObfuscateToolResponses() {
         return obfuscateToolResponses;
+    }
+
+    public InjectionOptions getInjectionOptions() {
+        return injection;
     }
 }

@@ -231,6 +231,15 @@ public class ObfuscationEngine {
     }
 
     String restoreScoped(String text, String scopeId) {
+        return restoreScoped(text, scopeId, true, "");
+    }
+
+    /**
+     * @param insideUrls     whether tags that are part of a URL are restored too
+     * @param precedingText  text emitted right before {@code text} (streaming), used to
+     *                       tell whether a tag at its very start continues a URL
+     */
+    String restoreScoped(String text, String scopeId, boolean insideUrls, CharSequence precedingText) {
         if (text == null || text.isEmpty()) {
             return text;
         }
@@ -239,6 +248,10 @@ public class ObfuscationEngine {
         StringBuilder result = new StringBuilder();
 
         while (matcher.find()) {
+            if (!insideUrls && isInsideUrl(precedingText, text, matcher.start())) {
+                matcher.appendReplacement(result, Matcher.quoteReplacement(matcher.group()));
+                continue;
+            }
             String id = matcher.group(2);
             String key = scopedKey(scopeId, id);
 
@@ -253,6 +266,37 @@ public class ObfuscationEngine {
 
         matcher.appendTail(result);
         return result.toString();
+    }
+
+    private static final int MAX_URL_LOOKBACK = 2048;
+
+    /**
+     * Whether the tag starting at {@code index} belongs to a URL: the run of
+     * characters before it (up to whitespace, a quote or an angle bracket) contains a
+     * scheme separator ({@code ://}), {@code www.} or {@code mailto:}. A restored value
+     * inside a link or a markdown image leaves the conversation as soon as the client
+     * renders it.
+     */
+    static boolean isInsideUrl(CharSequence preceding, String text, int index) {
+        StringBuilder token = new StringBuilder();
+        int k = index - 1;
+        while (token.length() < MAX_URL_LOOKBACK) {
+            char c;
+            if (k >= 0) {
+                c = text.charAt(k);
+            } else if (preceding != null && preceding.length() + k >= 0) {
+                c = preceding.charAt(preceding.length() + k);
+            } else {
+                break;
+            }
+            if (Character.isWhitespace(c) || c == '"' || c == '\'' || c == '<' || c == '>' || c == '`') {
+                break;
+            }
+            token.append(c);
+            k--;
+        }
+        String run = token.reverse().toString().toLowerCase(java.util.Locale.ROOT);
+        return run.contains("://") || run.contains("www.") || run.contains("mailto:");
     }
 
     public boolean containsTags(String text) {

@@ -8,6 +8,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ploybot.promptshield.engine.ObfuscationEngine;
 import com.ploybot.promptshield.engine.ObfuscationScope;
 import com.ploybot.promptshield.engine.StreamingRestorer;
+import com.ploybot.promptshield.injection.ContentSource;
+import com.ploybot.promptshield.injection.InjectionAction;
+import com.ploybot.promptshield.injection.InjectionGuard;
+import com.ploybot.promptshield.injection.InjectionVerdict;
+import com.ploybot.promptshield.injection.PromptInjectionException;
 import com.ploybot.promptshield.proxy.client.AiProviderClient;
 import com.ploybot.promptshield.proxy.client.AiProviderClient.ProviderResponse;
 import org.slf4j.Logger;
@@ -25,6 +30,10 @@ import java.util.function.UnaryOperator;
  * It works on the raw JSON, so every field it does not touch reaches the provider and
  * the client unchanged. Each request gets its own scope, released once the response
  * has been restored.
+ *
+ * <p>With an {@link InjectionGuard}, user messages, tool messages and tool definitions
+ * are scanned for prompt injection first; see {@link InjectionGuard} for the actions and
+ * for why a flagged tool result keeps placeholders in the response's tool calls and URLs.
  */
 public class ProxyService {
 
@@ -35,13 +44,27 @@ public class ProxyService {
     private final ObfuscationEngine engine;
     private final boolean injectSystemPrompt;
     private final boolean restoreOnResponse;
+    private final InjectionGuard injectionGuard;
+    private final boolean protectOnInjection;
 
     public ProxyService(AiProviderClient aiClient, ObfuscationEngine engine,
                         boolean injectSystemPrompt, boolean restoreOnResponse) {
+        this(aiClient, engine, injectSystemPrompt, restoreOnResponse, null, true);
+    }
+
+    /**
+     * @param injectionGuard     prompt-injection detection, or {@code null} to disable it
+     * @param protectOnInjection keep placeholders in tool calls and URLs of the response
+     *                           when a tool message was flagged but let through
+     */
+    public ProxyService(AiProviderClient aiClient, ObfuscationEngine engine, boolean injectSystemPrompt,
+                        boolean restoreOnResponse, InjectionGuard injectionGuard, boolean protectOnInjection) {
         this.aiClient = aiClient;
         this.engine = engine;
         this.injectSystemPrompt = injectSystemPrompt;
         this.restoreOnResponse = restoreOnResponse;
+        this.injectionGuard = injectionGuard;
+        this.protectOnInjection = protectOnInjection;
     }
 
     /** Thrown when the client request is not a JSON object with a {@code messages} array. */
@@ -58,12 +81,14 @@ public class ProxyService {
     public ProviderResponse chatCompletion(String requestJson, String authorization) {
         ObfuscationScope scope = newRequestScope();
         try {
-            ObjectNode request = obfuscateRequest(parseRequest(requestJson), scope);
+            ObjectNode parsed = parseRequest(requestJson);
+            boolean protect = inspect(parsed);
+            ObjectNode request = obfuscateRequest(parsed, scope);
             ProviderResponse response = aiClient.chatCompletion(write(request), authorization);
             if (!restoreOnResponse || !response.isSuccess()) {
                 return response;
             }
-            return new ProviderResponse(response.status(), restoreResponse(response.body(), scope));
+            return new ProviderResponse(response.status(), restoreResponse(response.body(), scope, protect));
         } finally {
             scope.removeCreatedMappings();
         }
@@ -74,14 +99,17 @@ public class ProxyService {
      * the terminating {@code [DONE]} event.
      */
     public Flux<String> chatCompletionStream(String requestJson, String authorization) {
+        // Parsed and inspected eagerly: a blocked request fails before the event stream opens
+        ObjectNode parsed = parseRequest(requestJson);
+        boolean protect = inspect(parsed);
         return Flux.defer(() -> {
             ObfuscationScope scope = newRequestScope();
-            ObjectNode request = obfuscateRequest(parseRequest(requestJson), scope);
+            ObjectNode request = obfuscateRequest(parsed, scope);
             Flux<String> upstream = aiClient.chatCompletionStream(write(request), authorization);
             if (!restoreOnResponse) {
                 return upstream.doFinally(signal -> scope.removeCreatedMappings());
             }
-            StreamState state = new StreamState(scope);
+            StreamState state = new StreamState(scope, protect);
             return upstream
                     .map(chunk -> restoreStreamChunk(chunk, state))
                     .concatWith(Flux.defer(() -> Flux.fromIterable(state.trailingChunks())))
@@ -91,6 +119,66 @@ public class ProxyService {
 
     public ProviderResponse listModels(String authorization) {
         return aiClient.listModels(authorization);
+    }
+
+    /**
+     * Scans the request in place: quarantined tool messages are replaced, blocked
+     * requests throw {@link PromptInjectionException}.
+     *
+     * @return whether the response must keep placeholders in tool calls and URLs
+     */
+    private boolean inspect(ObjectNode request) {
+        if (injectionGuard == null) {
+            return false;
+        }
+        InjectionGuard.Inspection inspection = injectionGuard.newInspection();
+        List<InjectionVerdict> blockedDefinitions = new java.util.ArrayList<>();
+        if (request.get("tools") instanceof ArrayNode tools) {
+            for (JsonNode tool : tools) {
+                JsonNode function = tool.path("function");
+                String text = function.path("name").asText("") + "\n" + function.path("description").asText("")
+                        + "\n" + function.path("parameters").toString();
+                InjectionGuard.Decision decision = inspection.inspect(text, ContentSource.TOOL_DEFINITION);
+                report(decision);
+                if (decision.action() == InjectionAction.QUARANTINE) {
+                    blockedDefinitions.add(decision.verdict());
+                }
+            }
+        }
+        for (JsonNode node : (ArrayNode) request.get("messages")) {
+            if (!(node instanceof ObjectNode message)) {
+                continue;
+            }
+            String role = message.path("role").asText();
+            ContentSource source = switch (role) {
+                case "user" -> ContentSource.USER;
+                case "tool", "function" -> ContentSource.TOOL_RESULT;
+                default -> null;
+            };
+            if (source != null) {
+                transformContent(message, text -> {
+                    InjectionGuard.Decision decision = inspection.inspect(text, source);
+                    report(decision);
+                    return decision.text();
+                });
+            }
+        }
+        if (!blockedDefinitions.isEmpty()) {
+            throw new PromptInjectionException(blockedDefinitions);
+        }
+        inspection.throwIfBlocked();
+        boolean protect = protectOnInjection && inspection.isTainted();
+        if (protect) {
+            logger.warn("ProxyService: a tool message was flagged; placeholders in tool calls and URLs of the "
+                    + "response are not restored");
+        }
+        return protect;
+    }
+
+    private static void report(InjectionGuard.Decision decision) {
+        if (decision.flagged()) {
+            logger.warn("ProxyService: possible prompt injection ({}): {}", decision.action(), decision.verdict().summary());
+        }
     }
 
     private ObfuscationScope newRequestScope() {
@@ -175,7 +263,7 @@ public class ProxyService {
         }
     }
 
-    private String restoreResponse(String body, ObfuscationScope scope) {
+    private String restoreResponse(String body, ObfuscationScope scope, boolean protect) {
         JsonNode root;
         try {
             root = MAPPER.readTree(body);
@@ -185,8 +273,10 @@ public class ProxyService {
         }
         for (JsonNode choice : root.path("choices")) {
             if (choice.get("message") instanceof ObjectNode message) {
-                transformContent(message, scope::restore);
-                transformToolCallArguments(message, scope::restore);
+                transformContent(message, protect ? scope::restoreOutsideUrls : scope::restore);
+                if (!protect) {
+                    transformToolCallArguments(message, scope::restore);
+                }
             }
         }
         return write(root);
@@ -217,7 +307,8 @@ public class ProxyService {
             }
             if (delta != null && delta.get("tool_calls") instanceof ArrayNode calls) {
                 for (JsonNode call : calls) {
-                    if (call.get("function") instanceof ObjectNode function && function.path("arguments").isTextual()) {
+                    if (!state.protect && call.get("function") instanceof ObjectNode function
+                            && function.path("arguments").isTextual()) {
                         int callIndex = call.path("index").asInt(0);
                         function.put("arguments", state.restorer(choiceIndex, callIndex)
                                 .process(function.get("arguments").asText()));
@@ -243,15 +334,18 @@ public class ProxyService {
     /** Restorers for one stream, per choice and per tool call (-1 is the text content). */
     private static final class StreamState {
         private final ObfuscationScope scope;
+        private final boolean protect;
         private final Map<String, StreamingRestorer> restorers = new LinkedHashMap<>();
         private ObjectNode lastChunk;
 
-        StreamState(ObfuscationScope scope) {
+        StreamState(ObfuscationScope scope, boolean protect) {
             this.scope = scope;
+            this.protect = protect;
         }
 
         StreamingRestorer restorer(int choiceIndex, int callIndex) {
-            return restorers.computeIfAbsent(choiceIndex + ":" + callIndex, key -> scope.streamingRestorer());
+            return restorers.computeIfAbsent(choiceIndex + ":" + callIndex,
+                    key -> protect ? scope.streamingRestorerOutsideUrls() : scope.streamingRestorer());
         }
 
         void flushInto(ObjectNode choice, int choiceIndex) {

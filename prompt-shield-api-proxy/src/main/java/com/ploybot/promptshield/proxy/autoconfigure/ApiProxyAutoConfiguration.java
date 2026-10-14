@@ -67,11 +67,14 @@ public class ApiProxyAutoConfiguration {
     @ConditionalOnMissingBean
     public ProxyService proxyService(AiProviderClient aiClient, ObfuscationEngine engine) {
         PromptShieldProperties.ProxyProperties proxyProps = properties.getProxy();
+        PromptShieldProperties.InjectionProperties injectionProps = properties.getInjection();
         return new ProxyService(
                 aiClient,
                 engine,
                 proxyProps.isInjectSystemPrompt(),
-                proxyProps.isRestoreOnResponse()
+                proxyProps.isRestoreOnResponse(),
+                injectionProps.isEnabled() ? injectionProps.toGuard(engine.getTagPattern()) : null,
+                injectionProps.isProtectOnInjection()
         );
     }
 
