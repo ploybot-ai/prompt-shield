@@ -1,5 +1,9 @@
 package com.ploybot.promptshield.config;
 
+import com.ploybot.promptshield.injection.ContentSource;
+import com.ploybot.promptshield.injection.HeuristicInjectionDetector;
+import com.ploybot.promptshield.injection.InjectionAction;
+import com.ploybot.promptshield.injection.InjectionGuard;
 import com.ploybot.promptshield.model.ObfuscationConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -7,6 +11,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @ConfigurationProperties(prefix = "prompt-shield")
 public class PromptShieldProperties {
@@ -28,6 +33,7 @@ public class PromptShieldProperties {
      */
     private final Map<String, CustomTypeProperties> customTypes = new LinkedHashMap<>();
     private final AdvisorProperties advisor = new AdvisorProperties();
+    private final InjectionProperties injection = new InjectionProperties();
     private final ProxyProperties proxy = new ProxyProperties();
     private final StorageProperties storage = new StorageProperties();
 
@@ -157,6 +163,10 @@ public class PromptShieldProperties {
         return customTypes;
     }
 
+    public InjectionProperties getInjection() {
+        return injection;
+    }
+
     public AdvisorProperties getAdvisor() {
         return advisor;
     }
@@ -178,6 +188,155 @@ public class PromptShieldProperties {
 
         public void setPattern(String pattern) {
             this.pattern = pattern;
+        }
+    }
+
+    /**
+     * Prompt-injection detection in the Spring AI advisor and the API proxy. The default
+     * action only reports (logs a warning without the text, adds the verdicts to the
+     * response context); see the README for the trade-offs of each action.
+     */
+    public static class InjectionProperties {
+        private boolean enabled = true;
+        /** What to do with flagged user messages: monitor or block. */
+        private InjectionAction userAction = InjectionAction.MONITOR;
+        /** What to do with flagged tool results and tool descriptions: monitor, block or quarantine. */
+        private InjectionAction toolAction = InjectionAction.MONITOR;
+        /** Score at or above which user input is flagged. */
+        private double userThreshold = HeuristicInjectionDetector.DEFAULT_THRESHOLD;
+        /**
+         * Score at or above which tool results, tool descriptions and documents are flagged.
+         * 0.35 catches more indirect injections (instructions that only target "your
+         * response") at the cost of more false positives on text addressed to people.
+         */
+        private double toolThreshold = HeuristicInjectionDetector.DEFAULT_THRESHOLD;
+        /** Also scan de-obfuscated views (Unicode tricks, base64, rot13...). */
+        private boolean deobfuscation = true;
+        /**
+         * When untrusted content was flagged but let through (monitor), keep placeholders in
+         * tool call arguments and inside URLs of the response instead of restoring the real
+         * values, so an injection cannot use Prompt Shield to exfiltrate them.
+         */
+        private boolean protectOnInjection = true;
+        /** Scan the application's system prompt too (off: it is trusted). */
+        private boolean scanSystemMessages = false;
+        /** Scan tool descriptions and schemas offered to the model (MCP tool poisoning). */
+        private boolean scanToolDefinitions = true;
+        /** Rule ids to disable, e.g. to silence a source of false positives. */
+        private List<String> disabledRules = new ArrayList<>();
+        /**
+         * Tools whose call arguments get the original values restored. Empty (default)
+         * means every tool. Listing only the tools that need personal data (send_invoice,
+         * create_customer...) keeps placeholders in the arguments of every other tool
+         * (http_get, post_comment...), so an injection that detection misses still cannot
+         * route the data through them.
+         */
+        private List<String> restoreToolArgumentsFor = new ArrayList<>();
+
+        public List<String> getRestoreToolArgumentsFor() {
+            return restoreToolArgumentsFor;
+        }
+
+        public void setRestoreToolArgumentsFor(List<String> restoreToolArgumentsFor) {
+            this.restoreToolArgumentsFor = restoreToolArgumentsFor;
+        }
+
+        /** Builds the detector, taking the placeholder format of the obfuscation engine. */
+        public HeuristicInjectionDetector toDetector(Pattern placeholderPattern) {
+            return HeuristicInjectionDetector.builder()
+                    .threshold(ContentSource.USER, userThreshold)
+                    .threshold(ContentSource.SYSTEM, userThreshold)
+                    .threshold(ContentSource.DOCUMENT, toolThreshold)
+                    .threshold(ContentSource.TOOL_RESULT, toolThreshold)
+                    .threshold(ContentSource.TOOL_DEFINITION, toolThreshold)
+                    .deobfuscation(deobfuscation)
+                    .disableRules(disabledRules)
+                    .placeholderPattern(placeholderPattern)
+                    .build();
+        }
+
+        public InjectionGuard toGuard(Pattern placeholderPattern) {
+            return new InjectionGuard(toDetector(placeholderPattern), userAction, toolAction);
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public InjectionAction getUserAction() {
+            return userAction;
+        }
+
+        public void setUserAction(InjectionAction userAction) {
+            this.userAction = userAction;
+        }
+
+        public InjectionAction getToolAction() {
+            return toolAction;
+        }
+
+        public void setToolAction(InjectionAction toolAction) {
+            this.toolAction = toolAction;
+        }
+
+        public double getUserThreshold() {
+            return userThreshold;
+        }
+
+        public void setUserThreshold(double userThreshold) {
+            this.userThreshold = userThreshold;
+        }
+
+        public double getToolThreshold() {
+            return toolThreshold;
+        }
+
+        public void setToolThreshold(double toolThreshold) {
+            this.toolThreshold = toolThreshold;
+        }
+
+        public boolean isDeobfuscation() {
+            return deobfuscation;
+        }
+
+        public void setDeobfuscation(boolean deobfuscation) {
+            this.deobfuscation = deobfuscation;
+        }
+
+        public boolean isProtectOnInjection() {
+            return protectOnInjection;
+        }
+
+        public void setProtectOnInjection(boolean protectOnInjection) {
+            this.protectOnInjection = protectOnInjection;
+        }
+
+        public boolean isScanSystemMessages() {
+            return scanSystemMessages;
+        }
+
+        public void setScanSystemMessages(boolean scanSystemMessages) {
+            this.scanSystemMessages = scanSystemMessages;
+        }
+
+        public boolean isScanToolDefinitions() {
+            return scanToolDefinitions;
+        }
+
+        public void setScanToolDefinitions(boolean scanToolDefinitions) {
+            this.scanToolDefinitions = scanToolDefinitions;
+        }
+
+        public List<String> getDisabledRules() {
+            return disabledRules;
+        }
+
+        public void setDisabledRules(List<String> disabledRules) {
+            this.disabledRules = disabledRules;
         }
     }
 

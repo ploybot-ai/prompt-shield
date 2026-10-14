@@ -32,7 +32,10 @@ public enum SensitiveDataType {
     DNI("DNI", "\\b(?:\\d{8}|\\d{2}\\.\\d{3}\\.\\d{3})-?[A-Za-z]\\b", false, ChecksumValidators::isValidDni),
     // X1234567L, X-1234567-L
     NIE("NIE", "\\b[XYZxyz]-?\\d{7}-?[A-Za-z]\\b", false, ChecksumValidators::isValidNie),
-    EMAIL("EMAIL", "[\\w.+-]+@[\\w.-]+\\.\\w{2,}", false),
+    // The lookbehind makes only the start of a run try a match and the possessive run never
+    // backtracks: without them a long run of word characters with no "@" is rescanned from
+    // every position (quadratic time)
+    EMAIL("EMAIL", "(?<![\\w.+-])[\\w.+-]++@[\\w.-]+\\.\\w{2,}", false),
     // Spanish IBAN, compact or in groups of four: ES91 2100 0418 4502 0005 1332
     N_CUENTA("N_CUENTA", "\\bES\\d{2}(?: ?\\d{4}){5}\\b", false, ChecksumValidators::isValidIban),
     // Any other IBAN, compact or grouped

@@ -50,6 +50,15 @@ public class PromptShieldAdvisorAutoConfiguration {
     @ConditionalOnMissingBean
     public PromptShieldAdvisor promptShieldAdvisor(ObfuscationEngine engine) {
         PromptShieldProperties.AdvisorProperties advisorProps = properties.getAdvisor();
+        PromptShieldProperties.InjectionProperties injectionProps = properties.getInjection();
+        PromptShieldAdvisor.InjectionOptions injection = injectionProps.isEnabled()
+                ? new PromptShieldAdvisor.InjectionOptions(
+                        injectionProps.toGuard(engine.getTagPattern()),
+                        injectionProps.isProtectOnInjection(),
+                        injectionProps.isScanSystemMessages(),
+                        injectionProps.isScanToolDefinitions(),
+                        new java.util.HashSet<>(injectionProps.getRestoreToolArgumentsFor()))
+                : null;
         return new PromptShieldAdvisor(
                 engine,
                 advisorProps.getOrder(),
@@ -57,7 +66,8 @@ public class PromptShieldAdvisorAutoConfiguration {
                 advisorProps.isInjectSystemPrompt(),
                 advisorProps.getSystemPrompt(),
                 advisorProps.isObfuscateSystemMessages(),
-                advisorProps.isObfuscateToolResponses()
+                advisorProps.isObfuscateToolResponses(),
+                injection
         );
     }
 }

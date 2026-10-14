@@ -167,19 +167,131 @@ public class ObfuscationEngine {
         if (text == null || text.isEmpty()) {
             return text;
         }
-        List<DetectedEntity> entities = registry.detect(text, typeNames, tagRanges(text));
-        if (entities.isEmpty()) {
+        List<int[]> spans = detectSpans(text, typeNames);
+        if (spans.isEmpty()) {
             return text;
         }
-        StringBuilder result = new StringBuilder(text.length() + entities.size() * 24);
+        StringBuilder result = new StringBuilder(text.length() + spans.size() * 24);
         int last = 0;
-        for (DetectedEntity entity : entities) {
-            result.append(text, last, entity.getStart());
-            result.append(formatTag(entity.getType(), assignId(entity.getType(), entity.getValue(), scope)));
-            last = entity.getEnd();
+        List<String> names = new ArrayList<>(typeNames);
+        for (int[] span : spans) {
+            int start = span[0];
+            int end = span[1];
+            String type = names.get(span[2]);
+            // The original span, invisible characters included, is what gets stored and restored
+            String value = text.substring(start, end);
+            result.append(text, last, start);
+            result.append(formatTag(type, assignId(type, value, scope)));
+            last = end;
         }
         result.append(text, last, text.length());
         return result.toString();
+    }
+
+    /**
+     * Matches on the original text and, when it contains format or fullwidth characters,
+     * on the {@link DetectionView} too, as {@code [start, end, typeIndex]} in original
+     * offsets, sorted and non-overlapping. Both are needed: the view finds
+     * "1234\u200B5678Z", but removing a format character that was the only separator glues
+     * a word to the value ("ACME\u200B12345678Z" becomes one word) and only the original
+     * text finds it. Where they overlap the longer match wins.
+     */
+    private List<int[]> detectSpans(String text, Collection<String> typeNames) {
+        List<String> names = new ArrayList<>(typeNames);
+        List<int[]> candidates = new ArrayList<>();
+        for (DetectedEntity entity : registry.detect(text, typeNames, tagRanges(text))) {
+            candidates.add(new int[]{entity.getStart(), entity.getEnd(), names.indexOf(entity.getType())});
+        }
+        DetectionView view = DetectionView.of(text);
+        if (view.offsets() != null) {
+            for (DetectedEntity entity : registry.detect(view.text(), typeNames, tagRanges(view.text()))) {
+                candidates.add(new int[]{view.originalStart(entity.getStart()), view.originalEnd(entity.getEnd()),
+                        names.indexOf(entity.getType())});
+            }
+        }
+        // Longest first; on equal length the original-text match (added first) is kept
+        List<int[]> ordered = new ArrayList<>(candidates);
+        ordered.sort((a, b) -> Integer.compare(b[1] - b[0], a[1] - a[0]));
+        List<int[]> accepted = new ArrayList<>();
+        for (int[] candidate : ordered) {
+            boolean overlaps = false;
+            for (int[] taken : accepted) {
+                if (candidate[0] < taken[1] && taken[0] < candidate[1]) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if (!overlaps) {
+                accepted.add(candidate);
+            }
+        }
+        accepted.sort((a, b) -> Integer.compare(a[0], b[0]));
+        return accepted;
+    }
+
+    /**
+     * The text the detection patterns run on. Without it, "1234\u200B5678Z" or a
+     * fullwidth "１２３４５６７８Ｚ" reaches the provider in clear although the model reads
+     * it as a DNI: format characters (zero-width, bidi, soft hyphen...) are dropped and
+     * fullwidth ASCII is mapped to ASCII, keeping the offset of every character in the
+     * original text.
+     */
+    record DetectionView(String text, int[] offsets, int originalLength, String original) {
+
+        DetectionView(String text, int[] offsets, int originalLength) {
+            this(text, offsets, originalLength, null);
+        }
+
+        private char originalCharAt(int index) {
+            return original == null ? 0 : original.charAt(index);
+        }
+
+        static DetectionView of(String original) {
+            boolean plain = true;
+            for (int i = 0; i < original.length() && plain; i++) {
+                char c = original.charAt(i);
+                plain = !(Character.getType(c) == Character.FORMAT || Character.isSurrogate(c)
+                        || c >= 0xFF01 && c <= 0xFF5E || c == 0x3000);
+            }
+            if (plain) {
+                return new DetectionView(original, null, original.length());
+            }
+            StringBuilder view = new StringBuilder(original.length());
+            int[] offsets = new int[original.length()];
+            int i = 0;
+            while (i < original.length()) {
+                int cp = original.codePointAt(i);
+                int width = Character.charCount(cp);
+                if (Character.getType(cp) != Character.FORMAT) {
+                    int mapped = cp >= 0xFF01 && cp <= 0xFF5E ? cp - 0xFEE0 : cp == 0x3000 ? ' ' : cp;
+                    for (int k = 0; k < Character.charCount(mapped); k++) {
+                        offsets[view.length() + k] = i + Math.min(k, width - 1);
+                    }
+                    view.appendCodePoint(mapped);
+                }
+                i += width;
+            }
+            return new DetectionView(view.toString(), offsets, original.length(), original);
+        }
+
+        int originalStart(int viewStart) {
+            return offsets == null ? viewStart : offsets[viewStart];
+        }
+
+        /** Exclusive end: one past the original position of the last character of the match. */
+        int originalEnd(int viewEnd) {
+            if (offsets == null) {
+                return viewEnd;
+            }
+            if (viewEnd == 0) {
+                return 0;
+            }
+            int last = offsets[viewEnd - 1];
+            // Include the low surrogate when the last character is a complete supplementary one
+            boolean pair = Character.isHighSurrogate(originalCharAt(last)) && last + 1 < originalLength
+                    && Character.isLowSurrogate(originalCharAt(last + 1));
+            return pair ? last + 2 : last + 1;
+        }
     }
 
     private List<int[]> tagRanges(String text) {
@@ -231,6 +343,15 @@ public class ObfuscationEngine {
     }
 
     String restoreScoped(String text, String scopeId) {
+        return restoreScoped(text, scopeId, true, "");
+    }
+
+    /**
+     * @param insideUrls     whether tags that are part of a URL are restored too
+     * @param precedingText  text emitted right before {@code text} (streaming), used to
+     *                       tell whether a tag at its very start continues a URL
+     */
+    String restoreScoped(String text, String scopeId, boolean insideUrls, CharSequence precedingText) {
         if (text == null || text.isEmpty()) {
             return text;
         }
@@ -239,6 +360,10 @@ public class ObfuscationEngine {
         StringBuilder result = new StringBuilder();
 
         while (matcher.find()) {
+            if (!insideUrls && isInsideUrl(precedingText, text, matcher.start())) {
+                matcher.appendReplacement(result, Matcher.quoteReplacement(matcher.group()));
+                continue;
+            }
             String id = matcher.group(2);
             String key = scopedKey(scopeId, id);
 
@@ -253,6 +378,37 @@ public class ObfuscationEngine {
 
         matcher.appendTail(result);
         return result.toString();
+    }
+
+    private static final int MAX_URL_LOOKBACK = 2048;
+
+    /**
+     * Whether the tag starting at {@code index} belongs to a URL: the run of
+     * characters before it (up to whitespace, a quote or an angle bracket) contains a
+     * scheme separator ({@code ://}), {@code www.} or {@code mailto:}. A restored value
+     * inside a link or a markdown image leaves the conversation as soon as the client
+     * renders it.
+     */
+    static boolean isInsideUrl(CharSequence preceding, String text, int index) {
+        StringBuilder token = new StringBuilder();
+        int k = index - 1;
+        while (token.length() < MAX_URL_LOOKBACK) {
+            char c;
+            if (k >= 0) {
+                c = text.charAt(k);
+            } else if (preceding != null && preceding.length() + k >= 0) {
+                c = preceding.charAt(preceding.length() + k);
+            } else {
+                break;
+            }
+            if (Character.isWhitespace(c) || c == '"' || c == '\'' || c == '<' || c == '>' || c == '`') {
+                break;
+            }
+            token.append(c);
+            k--;
+        }
+        String run = token.reverse().toString().toLowerCase(java.util.Locale.ROOT);
+        return run.contains("://") || run.contains("www.") || run.contains("mailto:");
     }
 
     public boolean containsTags(String text) {

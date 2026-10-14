@@ -95,6 +95,21 @@ public class ProxyController {
         return Map.of("status", "ok", "service", "prompt-shield-api-proxy");
     }
 
+    /** The message names rules and sources only, never the flagged text. */
+    @ExceptionHandler(com.ploybot.promptshield.injection.PromptInjectionException.class)
+    public ResponseEntity<String> injectionBlocked(com.ploybot.promptshield.injection.PromptInjectionException e) {
+        String categories = e.getVerdicts().stream()
+                .flatMap(v -> v.categories().stream())
+                .distinct()
+                .map(c -> "\"" + c.name().toLowerCase(java.util.Locale.ROOT) + "\"")
+                .collect(java.util.stream.Collectors.joining(","));
+        return ResponseEntity.badRequest()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":{\"message\":\"Request blocked by Prompt Shield: possible prompt injection\","
+                        + "\"type\":\"invalid_request_error\",\"code\":\"prompt_injection_detected\","
+                        + "\"categories\":[" + categories + "]}}");
+    }
+
     @ExceptionHandler(ProxyService.InvalidRequestException.class)
     public ResponseEntity<String> invalidRequest(ProxyService.InvalidRequestException e) {
         return ResponseEntity.badRequest()

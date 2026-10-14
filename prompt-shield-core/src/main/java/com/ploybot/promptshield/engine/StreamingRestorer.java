@@ -17,9 +17,13 @@ public final class StreamingRestorer {
     private final Pattern tagPattern;
     private final String tagOpen;
     private final StringBuilder carry = new StringBuilder();
+    private final boolean restoreInUrls;
+    /** The end of the text emitted so far (before restoration), to recognise URLs split across chunks. */
+    private final StringBuilder emittedTail = new StringBuilder();
 
-    StreamingRestorer(ObfuscationScope scope) {
+    StreamingRestorer(ObfuscationScope scope, boolean restoreInUrls) {
         this.scope = scope;
+        this.restoreInUrls = restoreInUrls;
         this.tagPattern = scope.getEngine().getTagPattern();
         this.tagOpen = scope.getEngine().getConfig().getTagOpen();
     }
@@ -39,7 +43,16 @@ public final class StreamingRestorer {
         String emit = buffered.substring(0, hold);
         carry.setLength(0);
         carry.append(buffered, hold, buffered.length());
-        return scope.restore(emit);
+        return restore(emit);
+    }
+
+    private String restore(String emit) {
+        String restored = scope.getEngine().restoreScoped(emit, scope.getScopeId(), restoreInUrls, emittedTail);
+        emittedTail.append(emit);
+        if (emittedTail.length() > 4096) {
+            emittedTail.delete(0, emittedTail.length() - 2048);
+        }
+        return restored;
     }
 
     /**
@@ -48,7 +61,7 @@ public final class StreamingRestorer {
     public String flush() {
         String rest = carry.toString();
         carry.setLength(0);
-        return scope.restore(rest);
+        return restore(rest);
     }
 
     public boolean hasPendingText() {

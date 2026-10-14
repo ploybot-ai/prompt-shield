@@ -556,4 +556,69 @@ class ObfuscationEngineTest {
         assertTrue(restored.contains("612345678"),
                 "Same conversation should be able to restore shared data");
     }
+
+    @org.junit.jupiter.api.Test
+    void invisibleCharactersAndFullwidthDigitsDoNotHideSensitiveData() {
+        ObfuscationEngine shieldEngine = new ObfuscationEngine();
+        ObfuscationScope scope = shieldEngine.forScope("unicode");
+        String[] inputs = {
+                "DNI 1234\u200B5678Z",
+                "DNI 1234\uDB40\uDC205678Z",
+                "DNI \uD83D\uDE00 1234\u00AD5678Z \uD83D\uDE00",
+                "DNI \uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18\uFF3A",
+                "email juan\u200B@example.com",
+                "email juan\uFF20example.com",
+                "tel \uFF16\uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18",
+        };
+        for (String input : inputs) {
+            String obfuscated = scope.obfuscate(input);
+            org.junit.jupiter.api.Assertions.assertTrue(obfuscated.contains("~REDACTED:"), input + " -> " + obfuscated);
+            org.junit.jupiter.api.Assertions.assertFalse(obfuscated.contains("5678"), obfuscated);
+            org.junit.jupiter.api.Assertions.assertEquals(input, scope.restore(obfuscated));
+        }
+    }
+
+    @org.junit.jupiter.api.Test
+    void longRunsWithoutAtSignAreLinear() {
+        ObfuscationScope scope = new ObfuscationEngine().forScope("dos");
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () -> {
+            for (String input : new String[]{"a.".repeat(100_000), "1".repeat(200_000), "a".repeat(200_000)}) {
+                scope.obfuscate(input);
+            }
+        });
+        org.junit.jupiter.api.Assertions.assertEquals("Mail: ~", scope.obfuscate("Mail: first.last+tag@sub.example.co.uk").substring(0, 7));
+        org.junit.jupiter.api.Assertions.assertTrue(scope.obfuscate("<mailto:juan@example.com>").startsWith("<mailto:~REDACTED:EMAIL#"));
+    }
+
+    @org.junit.jupiter.api.Test
+    void formatCharacterUsedAsSeparatorStillDetected() {
+        ObfuscationScope scope = new ObfuscationEngine().forScope("separators");
+        for (String input : new String[]{"Cliente:ACME\u200B12345678Z", "ref\u200B612345678", "NIF\u206012345678Z",
+                "Tel\u00AD612345678", "ju\u200Ban@example.com"}) {
+            String obfuscated = scope.obfuscate(input);
+            org.junit.jupiter.api.Assertions.assertTrue(obfuscated.contains("~REDACTED:"), input + " -> " + obfuscated);
+            org.junit.jupiter.api.Assertions.assertFalse(obfuscated.contains("5678") || obfuscated.contains("example.com"),
+                    obfuscated);
+            org.junit.jupiter.api.Assertions.assertEquals(input, scope.restore(obfuscated));
+        }
+    }
+
+    @org.junit.jupiter.api.Test
+    void customTypeEndingOnLoneSurrogateDoesNotThrow() {
+        com.ploybot.promptshield.model.ObfuscationConfig config = new com.ploybot.promptshield.model.ObfuscationConfig();
+        ObfuscationEngine custom = new ObfuscationEngine(config);
+        custom.getRegistry().register("TICKET", "TCK-[^\\s,;]+");
+        ObfuscationScope scope = custom.forScope("surrogates");
+        for (String input : new String[]{"Ver TCK-1234\uD83D", "Ver \u200BTCK-1234\uD83Dx", "Ver \u200BTCK-12\uD83D\uDE00 ok"}) {
+            String obfuscated = scope.obfuscate(input);
+            org.junit.jupiter.api.Assertions.assertEquals(input, scope.restore(obfuscated));
+        }
+    }
+
+    @org.junit.jupiter.api.Test
+    void longLocalPartsAreStillEmails() {
+        ObfuscationScope scope = new ObfuscationEngine().forScope("long-local");
+        String email = "msg-" + "a1".repeat(40) + "@mail.acme.es";
+        org.junit.jupiter.api.Assertions.assertFalse(scope.obfuscate("Reply to " + email).contains("acme.es"));
+    }
 }
