@@ -36,6 +36,17 @@ jobs:
     - name: Run tests
       run: mvn test -B -P'!ollama'
 
+    # Maven 3.10, now on the GitHub runners, leaves resolver files (maven-metadata-local.xml)
+    # in the bundle of central-publishing-maven-plugin 0.11 and Central rejects it: "Bundle
+    # has content that does NOT have a .pom file". 3.9.11 builds a valid bundle.
+    - name: Set up Maven 3.9.11
+      run: |
+        curl -fsSL -o "$RUNNER_TEMP/maven.tar.gz" \
+          https://repo1.maven.org/maven2/org/apache/maven/apache-maven/3.9.11/apache-maven-3.9.11-bin.tar.gz
+        echo "bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978  $RUNNER_TEMP/maven.tar.gz" | sha512sum -c -
+        tar -xzf "$RUNNER_TEMP/maven.tar.gz" -C "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/apache-maven-3.9.11/bin" >> "$GITHUB_PATH"
+
     - name: Publish SNAPSHOT
       run: mvn -P release --batch-mode deploy -DskipTests
       env:
