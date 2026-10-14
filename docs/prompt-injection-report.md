@@ -12,6 +12,10 @@ Fecha: 2026-10-14 · Rama: `claude/epic-darwin-udn32b`
 > la mitad de ese conjunto que no se usó para ajustar reglas. La protección más fuerte de
 > este PR no es el detector, sino dos controles deterministas sobre la restauración de PII
 > (secciones 2 y 8).
+>
+> **Rendimiento (1.5.0).** Tras el merge se optimizó el detector sin cambiar ningún
+> veredicto: p50 de 696 a 126 µs, p99 de 7,5 a 0,69 ms, 10 KB de 86 a 8 ms y 1 MB de 7,9 a
+> 0,43 s (sección 15).
 
 ## Índice
 
@@ -29,6 +33,7 @@ Fecha: 2026-10-14 · Rama: `claude/epic-darwin-udn32b`
 12. [Limitaciones y riesgo residual](#12-limitaciones-y-riesgo-residual)
 13. [Recomendaciones y trabajo futuro](#13-recomendaciones-y-trabajo-futuro)
 14. [Reproducibilidad](#14-reproducibilidad)
+15. [Rendimiento: análisis y optimización (1.5.0)](#15-rendimiento-análisis-y-optimización-150)
 
 ## 1. Punto de partida y alcance
 
@@ -40,7 +45,8 @@ inyecta instrucciones para que el modelo conserve los marcadores.
 
 Se trabajó sobre todos los módulos que tocan texto no confiable: `prompt-shield-core`,
 `prompt-shield-spring-ai-advisor` y `prompt-shield-api-proxy`. Además se creó el módulo
-no publicado `prompt-shield-injection-eval`.
+no publicado `prompt-shield-injection-eval` (la sección 15.6 explica cómo se garantiza que
+no llega a Maven Central).
 
 ## 2. Auditoría: modelo de amenazas y hallazgos
 
@@ -227,21 +233,19 @@ búsqueda que citan ataques.
 | 0,70 | 92,7 % / 3,8 % | 44,7 % / 0 % | 0 % / 0 % |
 
 **Coste** (JDK 21, un hilo, host de evaluación compartido; comparar ejecuciones en la
-misma máquina):
+misma máquina). Versión 1.5.0, tras la optimización de la sección 15:
 
 | | p50 | p95 | p99 | asignación media | heap por instancia |
 |---|---|---|---|---|---|
-| sin detector (1.4) | 0,3 µs | 0,7 µs | 4,5 µs | 0 | — |
-| heurístico sin desofuscación | 255 µs | 925 µs | 1,99 ms | 18,6 KiB | — |
-| heurístico (por defecto) | 628 µs | 2,83 ms | 5,66 ms | 53,9 KiB | 478 KiB |
+| sin detector (1.4) | 0,2 µs | 0,5 µs | 2,9 µs | 0 | — |
+| heurístico sin desofuscación | 59 µs | 178 µs | 301 µs | 14,5 KiB | — |
+| heurístico (por defecto) | 126 µs | 433 µs | 686 µs | 39,0 KiB | 984 KiB |
 
-Escalado: 1 KB → 5–6 ms; 10 KB → 68–83 ms; 100 KB → 0,65–0,9 s; 1 MB → 6,7–8,2 s, según la
-ejecución (host compartido). Es lineal, a unos 7–8 µs/carácter sobre un texto mixto de
-código, JSON y prosa. El revisor midió unos
-0,7 µs/carácter en prosa. En las 11 entradas patológicas no hay comportamiento
-superlineal (máximo: 1,5 s para 500 KB de `![x](http://a?` repetido; antes de la
-optimización era 7,3 s). Optimizaciones de la v3 sin perder ningún veredicto: 10 KB pasa
-de 149 a 68 ms.
+Escalado: 1 KB → 0,95 ms; 10 KB → 8,1 ms; 100 KB → 47 ms; 1 MB → 0,43 s. Es lineal, a
+unos 0,4–0,8 µs/carácter. En las 11 entradas patológicas no hay comportamiento
+superlineal: el máximo son 381 ms para 500 KB de `![x](http://a?` repetido. La sección 15
+compara estas cifras con las de la versión fusionada en el PR (p50 696 µs; 10 KB 86 ms;
+1 MB 7,9 s) medidas en la misma máquina.
 
 
 ## 8. Integración
@@ -401,9 +405,9 @@ un recall medido.
 - **BIPIA.** Las instrucciones de tarea sin vocabulario de ataque («añade a tu respuesta
   una frase sobre…») son indistinguibles léxicamente de un email que pide «incluya su
   número de pedido en su respuesta».
-- **Coste.** Unos 6–8 µs/carácter en el host de evaluación. Un documento de 1 MB cuesta
-  segundos de CPU. Conviene escanear en la ingesta (RAG) y cachear el veredicto, no en
-  cada petición.
+- **Coste.** Unos 0,4–0,8 µs/carácter en el host de evaluación desde 1.5.0 (antes,
+  6–8). Un documento de 1 MB sigue costando casi medio segundo de CPU. Conviene escanear
+  en la ingesta (RAG) y cachear el veredicto, no en cada petición.
 - **Modelos no evaluados.** HuggingFace no era accesible desde el entorno, así que no se
   midieron Prompt Guard 2 ni DeBERTa en este corpus. Solo se citan sus resultados en
   PINT [5].
@@ -435,6 +439,169 @@ python3 prompt-shield-injection-eval/scripts/import_external.py <clones> <prompt
 # Comparación con alternativas (necesita yara-python y prompt-shield-ai)
 python3 prompt-shield-injection-eval/scripts/compare_oss.py prompt-shield-injection-eval/target/injection-eval <clones>
 ```
+
+## 15. Rendimiento: análisis y optimización (1.5.0)
+
+Tras el merge se analizó si el detector podía ser más rápido sin perder detecciones. La
+restricción fue la misma que en el resto del trabajo: ninguna optimización puede cambiar
+un veredicto.
+
+### 15.1 Dónde se iba el tiempo
+
+Perfil por tipo de entrada (mensaje de ~100 caracteres, documento de BIPIA de ~850,
+prosa, JSON minificado, código y CSV de 10 KB, 100 KB) y por fase:
+
+- **Las reglas** consumían el 70–90 % del tiempo en todo menos CSV. Dentro de una regla
+  cara, el 60–99 % no era el patrón completo, sino probar su alternancia inicial
+  (`\b(?:ignore|disregard|…)`) en cada posición. `Matcher.find()` intenta el patrón en
+  todas las posiciones y `java.util.regex` recorre las alternativas una a una. Ejemplo:
+  `override.en-given` sobre 10 KB de prosa costaba 1.110 µs, de los que 1.098 µs eran la
+  alternancia inicial, sin ninguna coincidencia.
+- **El prefiltro de anclas**, con un `String.contains` por ancla, regla y capa, suponía
+  el 8–15 %.
+- **La normalización** era el resto, y casi todo eran regex sobre el texto completo, no
+  Unicode:
+
+  | Fase | Coste por 10 KB |
+  |---|---|
+  | Pista de cifrado de `mayBeEncoded` (tanto como el resto de la normalización) | 1,0–1,3 ms |
+  | Base64 | 0,5–0,7 ms |
+  | Base32 | 0,35–0,5 ms |
+  | Separadores dentro de palabras | 0,2–0,4 ms |
+  | Conteo de alfabetos mixtos | 0,25 ms |
+  | Colapso de espacios (varias llamadas por texto) | 0,17 ms por llamada |
+  | NFKC, NFD y NFC juntos | < 0,12 ms |
+
+### 15.2 Cambios (todos exactos)
+
+1. **Prefijos de inicio de cada regla** (`RegexPrefixes`). Un analizador del subconjunto
+   de `java.util.regex` que usan las reglas calcula literales de hasta 3 caracteres con
+   los que empieza toda coincidencia. El resultado es una sobreaproximación:
+   - Los elementos de anchura cero (`\b`, `^`, lookarounds) se tratan como vacíos.
+   - Los cuantificadores perezosos y posesivos se tratan como voraces.
+   - Ante sintaxis desconocida (referencias hacia atrás, flags en línea, `\Q…\E`,
+     intersecciones de clases) se rinde, y la regla se busca como antes.
+   - También se rinde si un patrón puede empezar por cualquier carácter (`\W+`, `.`, una
+     clase negada).
+
+   98 de las 99 reglas tienen prefijos. La que no los tiene, `placeholder.in-url`, es raw.
+2. **Un trie por capa** (`RuleIndex`) con las anclas y los prefijos de todas las reglas,
+   recorrido una vez desde cada posición. Da a la vez dos cosas:
+   - qué anclas aparecen, con el mismo resultado que `contains`;
+   - dónde puede empezar cada regla.
+
+   El patrón solo se prueba en esas posiciones, con `lookingAt()` sobre una región de
+   límites transparentes y no anclados. Así `\b` y los lookbehind ven el texto anterior
+   igual que en una búsqueda completa, y el primer candidato que encaja es la misma
+   coincidencia que habría devuelto `find()`.
+3. **Escáneres lineales en la normalización.** Cada uno equivale a la regex que
+   sustituye: colapso de espacios, eliminación de marcas, énfasis Markdown, separadores
+   dentro de palabras, base64, base32 y conteo de alfabetos. Hubo que reproducir dos
+   detalles de `java.util.regex`:
+   - su lookbehind `(?<=\p{L})` no reconoce una letra suplementaria;
+   - en base32 retrocede un `=` cuando el relleno va seguido de una letra.
+
+   Además:
+   - la pista de cifrado se busca con `indexOf`;
+   - el texto ASCII se salta NFKC, NFD y NFC, porque ya está en todas las formas;
+   - el esqueleto reutiliza el plegado ya calculado;
+   - los decodificadores de `%XX` y `&#…;` no se ejecutan si no aparece `%` o `&#`.
+
+### 15.3 Verificación
+
+No basta con que pasen los tests existentes: una optimización que oculta una coincidencia
+es un falso negativo silencioso.
+
+- **Diferencial de veredictos.** Se compararon 9.343 veredictos completos (puntuación y
+  cada señal con su capa y su evidencia), para la fuente original y para USER, sobre:
+  - el corpus y sus mutaciones;
+  - cada ataque incrustado en documentos de 2–11 KB en una posición aleatoria (un cuarto
+    de ellos dentro de JSON);
+  - las entradas de 10 y 100 KB.
+
+  Son idénticos byte a byte a los de la versión fusionada.
+- **Evaluación completa.** Las 4.535 predicciones del harness (puntuación y reglas) son
+  idénticas. Solo cambian las tablas de coste.
+- **Fuzzing diferencial** (fuera del repositorio):
+  - 7,9 M de textos construidos con el vocabulario de cada regla, de los que 1,06 M
+    tienen coincidencia. Comparando `find()` completo con la búsqueda por candidatos,
+    coinciden en todos la posición de inicio y la de fin.
+  - 1,2 M de cadenas aleatorias con surrogates, marcas combinantes, espacios Unicode y
+    rellenos `=`. Comparando cada escáner con su regex: 0 diferencias.
+- **Tests permanentes**:
+  - `RegexPrefixesTest`;
+  - `RuleIndexTest`: todas las reglas, 400 textos por regla con semilla fija, también el
+    resultado de las anclas;
+  - `TextNormalizerScannersTest`: 20.000 cadenas contra las regex originales.
+
+  La suite completa (384 tests) pasa compilando para Java 17.
+
+### 15.4 Resultados
+
+Misma máquina, ejecuciones consecutivas:
+
+| | versión fusionada (PR) | 1.5.0 | mejora |
+|---|---|---|---|
+| p50 / p95 / p99 por llamada (corpus) | 696 µs / 3,56 ms / 7,51 ms | 126 µs / 433 µs / 686 µs | 5,5× / 8,2× / 10,9× |
+| p50 sin desofuscación | 264 µs | 59 µs | 4,5× |
+| asignación media por llamada | 53,3 KiB | 39,0 KiB | −27 % |
+| 1 KB / 10 KB / 100 KB / 1 MB | 8,5 ms / 86 ms / 839 ms / 7,9 s | 0,95 ms / 8,1 ms / 47 ms / 0,43 s | 9× / 11× / 18× / 18× |
+| peor entrada patológica (500 KB) | 979 ms | 381 ms | 2,6× |
+| evaluación completa (4 configuraciones) | 82 s | 12,5 s | 6,6× |
+
+Por tipo de documento de 10 KB (fuente DOCUMENT):
+
+| Documento | Antes | 1.5.0 |
+|---|---|---|
+| Prosa | 41,8 ms | 3,1 ms |
+| JSON minificado (resultado de búsqueda) | 74,8 ms | 4,9 ms |
+| Código | 25,8 ms | 3,3 ms |
+| CSV | 6,2 ms | 1,3 ms |
+
+Un JSON de 100 KB pasa de 1,67 s a 73 ms.
+
+**Coste a cambio.** Cada detector retiene unos 500 KiB más por el trie (de 485 a
+984 KiB), y construirlo pasa de 1,8 a 18,6 ms. Se paga una vez, al crear el detector,
+que es un singleton en el advisor y en el proxy.
+
+**Riesgo residual.** La exactitud depende de que el analizador de prefijos sea correcto
+para cada sintaxis que acepta. Para las reglas incluidas lo cubren los tests anteriores.
+Una regla propia (`addRule`) con una construcción que el analizador interprete mal podría
+perder coincidencias sin aviso. Para reducir ese riesgo, el analizador se rinde ante toda
+sintaxis que no reconoce y sobreaproxima en lo demás. Quien añada reglas debería
+incluirlas en una prueba como `RuleIndexTest`.
+
+### 15.5 Lo que no se hizo, y por qué
+
+Estas opciones reducirían más el coste, pero cambian qué se detecta. Necesitarían su
+propia evaluación:
+
+- **rot13 e inverso solo alrededor de la pista.** En los textos largos que mencionan
+  «decode», «reverse», etc., se escanea el texto entero rotado e invertido. En el JSON de
+  100 KB eso es todavía un 10 % del coste. Limitarlo a ventanas alrededor de la pista
+  perdería una instrucción colocada lejos de ella.
+- **`json-fields` duplica el contenido del JSON.** Es un tercio del tiempo de reglas en
+  JSON. Reducirlo a las fronteras entre valores perdería las coincidencias más largas que
+  la ventana.
+- **Ventanas alrededor de las anclas.** Exigen una longitud máxima de coincidencia, y los
+  patrones usan `\W+`, que no está acotado: un atacante podría alargar el hueco.
+- **Paralelizar capas o reglas** en documentos grandes reduce la latencia, pero no la CPU
+  total.
+- **Truncar las entradas grandes** abre un bypass trivial: poner la instrucción al final.
+
+### 15.6 Publicación del módulo de evaluación
+
+Al preparar la release se vio que `maven.deploy.skip=true` no impide que
+`central-publishing-maven-plugin` publique un módulo. `prompt-shield-example` y
+`prompt-shield-api-proxy` tienen esa propiedad y aun así están en Maven Central en todas
+las versiones hasta la 1.4.0. El módulo de evaluación, con su corpus de ataques y sus
+scripts, se habría publicado en la 1.5.0.
+
+Ahora está en un perfil activo por defecto, `injection-eval`. Maven lo desactiva cuando
+se selecciona otro perfil, así que `mvn -P release deploy` no lo incluye en el reactor
+(verificado: 9 módulos con `-P release` y 10 sin él). El `versions:set` de la release
+sigue actualizando su versión. La publicación de `example` y `api-proxy` no se ha
+cambiado: es una decisión del proyecto.
 
 ## Referencias
 

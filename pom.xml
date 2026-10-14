@@ -57,7 +57,6 @@
         <module>prompt-shield-ner-opennlp</module>
         <module>prompt-shield-api-proxy</module>
         <module>prompt-shield-example</module>
-        <module>prompt-shield-injection-eval</module>
     </modules>
 
     <dependencyManagement>
@@ -163,6 +162,22 @@
     </build>
 
     <profiles>
+        <!--
+            The evaluation harness and its attack corpus are built and tested like any
+            other module but must never reach Maven Central. maven.deploy.skip is not
+            enough: the central-publishing plugin ignores it. A profile active by default
+            is switched off as soon as another profile is selected, so the module is not
+            in the reactor of "mvn -P release deploy".
+        -->
+        <profile>
+            <id>injection-eval</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <modules>
+                <module>prompt-shield-injection-eval</module>
+            </modules>
+        </profile>
         <profile>
             <id>release</id>
             <build>
