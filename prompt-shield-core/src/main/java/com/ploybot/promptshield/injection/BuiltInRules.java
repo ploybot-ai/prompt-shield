@@ -45,7 +45,16 @@ final class BuiltInRules {
             + "neglect(?:s|ed|ing)?|pay no (?:heed|attention|mind) to|take no notice of|let go of|move past|look past|"
             + "turn a blind eye to|stop adhering to|no longer adhere to)";
     /** A negation right before the verb ("must not disregard these safety protocols") reverses the meaning. */
-    private static final String NOT_NEGATED = "(?<!\\b(?:not|never|dont|don't|cannot|can't|shouldn't|mustn't|no)\\W{1,2})";
+    private static final String NEGATION = "\\b(?:not|never|dont|don't|cannot|can't|shouldn't|mustn't|no)\\W{1,2}";
+
+    /**
+     * {@code verbs} not preceded by a negation. The lookbehind is placed after the verb
+     * so that it only runs where a verb matched: in front of it, java.util.regex would
+     * evaluate it at every position of the text.
+     */
+    private static String notNegated(String verbs) {
+        return verbs + "(?<!" + NEGATION + verbs + ")";
+    }
     /** Verbs common in software and legal prose ("override the default settings"): need a possessive or prior modifier. */
     private static final String EN_WEAK_OVERRIDE_VERB = "(?:override|overriding|overwrite|replace|cancel|nullify|void|"
             + "supersede|scrap|drop|discard|abandon|skip|throw away|delete|erase|wipe)";
@@ -97,7 +106,7 @@ final class BuiltInRules {
             Map.entry("addressed.greeting", List.of("hey", "hi", "hello", "dear", "attention", "ok")),
             Map.entry("addressed.generator", List.of("generating", "building", "writing", "producing", "compiling", "creating", "composing", "drafting", "preparing", "summari")),
             Map.entry("addressed.reader-vocative", List.of("of this")),
-            Map.entry("addressed.multilingual", List.of("ai", "人工知能", "인공지능", "هوش مصنوعی", "yapay zekaya", "الذكاء الاصطناعي", "एआई", "ユーサー", "사용자에게")),
+            Map.entry("addressed.multilingual", List.of("aiへ", "ai へ", "aiに告く", "ai に告く", "ai에게", "ai 에게", "人工知能", "인공지능", "هوش مصنوعی", "yapay zekaya", "الذكاء الاصطناعي", "ai क लिए", "एआई", "ユーサー", "사용자에게")),
             Map.entry("tool.poisoning-prose", List.of("argument", "parameter", "param", "field", "context", "request", "payload", "notes", "sidenote")),
             Map.entry("override.en", List.of("ignor", "disregard", "forget", "forgot", "pay no", "take no notice", "put aside", "cast aside", "let go", "move past", "look past", "blind eye", "adher", "overrid", "bypass", "circumvent", "skip", "discard", "abandon", "neglect", "set aside", "follow", "obey", "cancel", "nullify", "void", "supersede", "replace", "scrap", "drop")),
             Map.entry("override.en-weak-verb", List.of("overrid", "overwrite", "replace", "cancel", "nullify", "void", "supersede", "scrap", "drop", "discard", "abandon", "skip", "throw away", "delete", "erase", "wipe")),
@@ -184,18 +193,18 @@ final class BuiltInRules {
 
         // ------------------------------------------------------------ instruction override (EN)
         r.add(InjectionRule.of("override.en", INSTRUCTION_OVERRIDE,
-                "\\b" + NOT_NEGATED + EN_OVERRIDE_VERB + "\\b" + gap(5) + "(?:" + EN_PRIOR + "\\W+)?" + EN_STRONG_NOUN + "\\b",
+                "\\b" + notNegated(EN_OVERRIDE_VERB) + "\\b" + gap(5) + "(?:" + EN_PRIOR + "\\W+)?" + EN_STRONG_NOUN + "\\b",
                 0.72, 0.8));
         r.add(InjectionRule.of("override.en-given", INSTRUCTION_OVERRIDE,
-                "\\b" + NOT_NEGATED + "(?:" + EN_OVERRIDE_VERB.substring(3, EN_OVERRIDE_VERB.length() - 1) + "|"
+                "\\b" + notNegated("(?:" + EN_OVERRIDE_VERB.substring(3, EN_OVERRIDE_VERB.length() - 1) + "|"
                         + EN_WEAK_OVERRIDE_VERB.substring(3, EN_WEAK_OVERRIDE_VERB.length() - 1)
-                        + "|shelve|shelves|shelved|ditch|ditches|ditched|toss(?: out)?|throw out|bin)\\W+(?:the\\W+|any\\W+|"
+                        + "|shelve|shelves|shelved|ditch|ditches|ditched|toss(?: out)?|throw out|bin)") + "\\W+(?:the\\W+|any\\W+|"
                         + "all\\W+(?:the\\W+)?|whatever\\W+)?(?:\\w+\\W+)?" + EN_STRONG_NOUN + "\\W+(?:that\\W+|which\\W+)?"
                         + "(?:you|you've|you have|you were|you've been|you have been|were)\\W+(?:been\\W+)?(?:given|handed|told|"
                         + "issued|provided|assigned|briefed|instructed|set)\\b", 0.65, 0.75));
         r.add(InjectionRule.of("override.en-your-training", INSTRUCTION_OVERRIDE,
-                "\\b" + NOT_NEGATED + "(?:ignor\\w*|forget\\w*|forgot\\w*|disregard\\w*|overrid\\w*|bypass\\w*|"
-                        + "set aside|move past)\\W+(?:all\\W+(?:of\\W+)?)?your\\W+(?:\\w+\\W+)?(?:training|programming|"
+                "\\b" + notNegated("(?:ignor[a-z]{0,4}|forget[a-z]{0,4}|forgot[a-z]{0,3}|disregard[a-z]{0,3}|"
+                        + "overrid[a-z]{0,4}|bypass[a-z]{0,3}|set aside|move past)") + "\\W+(?:all\\W+(?:of\\W+)?)?your\\W+(?:\\w+\\W+)?(?:training|programming|"
                         + "conditioning|alignment|fine-?tuning)\\b", 0.65, 0.7));
         r.add(InjectionRule.of("override.en-withdrawn", INSTRUCTION_OVERRIDE,
                 "\\b(?:treat|consider|regard|deem|count)\\W+(?:them|it|those|that|these|all (?:of )?(?:that|those|them|this)|"
@@ -252,9 +261,9 @@ final class BuiltInRules {
                         + "do the following|perform the following|follow these)\\b", 0.25, 0.4));
         r.add(InjectionRule.of("override.en-priority", INSTRUCTION_OVERRIDE,
                 "\\b(?:this|these|the following)\\W+(?:instructions?|message|directive|rules?)\\W+(?:\\w+\\W+){0,2}?"
-                        + "(?:take|takes|has|have)\\W+(?:precedence|priority)\\b|\\b(?<!(?:policy|agreement|contract|clause|version|"
-                        + "document|section|amendment|regulation|law|standard|edition|release|notice|terms|update|plan)\\W{1,2})"
-                        + "(?:supersedes?|overrides?)\\W+"
+                        + "(?:take|takes|has|have)\\W+(?:precedence|priority)\\b|\\b(?:supersedes?|overrides?)(?<!(?:policy|agreement|"
+                        + "contract|clause|version|document|section|amendment|regulation|law|standard|edition|release|notice|"
+                        + "terms|update|plan)\\W{1,2}(?:supersedes?|overrides?))\\W+"
                         + "(?:all|any|every)\\W+(?:\\w+\\W+){0,1}?(?:previous|prior|other|existing)\\W+(?:instructions|"
                         + "directives|rules|prompts|guidelines|system prompts?|commands|orders|ones)\\b", 0.5, 0.65));
 
@@ -594,9 +603,11 @@ final class BuiltInRules {
         r.add(InjectionRule.of("exfil.markdown-image-query", EXFILTRATION,
                 "!\\[[^\\]]{0,200}\\]\\(\\s*<?(?:https?:)?//[^)\\s]{1,400}[?&#][^)\\s]{0,400}=", 0.25, 0.4));
         r.add(InjectionRule.of("exfil.markdown-image-template", EXFILTRATION,
-                "!\\[[^\\]]{0,200}\\]\\(\\s*<?(?:https?:)?//[^)\\s]{1,400}(?:\\{|\\}|\\$|<|%7b|\\[|data|secret|"
-                        + "conversation|history|summary|password|token|key|info|payload|chat|leak|exfil|query|q=|d=|p=)"
-                        + "[^)]{0,400}\\)" + "(?=[\\s\\S]{0,600}(?:replace|substitute|fill|insert|append|include|with the|"
+                // The lookahead finds a marker in the URL; the possessive run then never backtracks
+                // into it (the previous greedy form rescanned the URL for every marker: slow on long input)
+                "!\\[[^\\]]{0,200}+\\]\\(\\s*<?(?:https?:)?//(?=[^)\\s]{1,400}?(?:\\{|\\}|\\$|<|%7b|\\[|data|secret|"
+                        + "conversation|history|summary|password|token|key|info|payload|chat|leak|exfil|query|q=|d=|p=))"
+                        + "[^)]{1,801}+\\)" + "(?=[\\s\\S]{0,600}(?:replace|substitute|fill|insert|append|include|with the|"
                         + "sustituye|reemplaza|rellena|incluye|anade))", 0.55, 0.65));
         r.add(InjectionRule.of("exfil.render-url-with-data", EXFILTRATION,
                 "\\b(?:render|display|show|output|include|insert|embed|load|fetch|visit|open|navigate to|browse to|"

@@ -46,6 +46,10 @@ final class TextNormalizer {
     }
 
     private static final int MAX_DECODED_SEGMENTS = 32;
+    private static final int MAX_UNHINTED_ENCODED_LENGTH = 4000;
+    /** Below this length the skeleton is built for the whole text. */
+    private static final int WHOLE_SKELETON_LENGTH = 2000;
+    private static final int MAX_SEGMENT_LENGTH = 2000;
     private static final int MIN_DECODED_LENGTH = 8;
 
     private static final Pattern MARKS = Pattern.compile("\\p{Mn}+");
@@ -81,8 +85,8 @@ final class TextNormalizer {
             return new Result(normalized, layers, stats);
         }
 
-        String skeleton = skeleton(foldKeepingSpaces(visible));
-        if (!skeleton.equals(normalized)) {
+        String skeleton = changedSkeleton(visible);
+        if (skeleton != null) {
             layers.add(new Layer("skeleton", skeleton));
         }
         if (!invisible.hidden.isEmpty()) {
@@ -106,8 +110,8 @@ final class TextNormalizer {
             String rotated = fold(rot13(lower));
             layers.add(new Layer("rot13", rotated));
             layers.add(new Layer("reversed", new StringBuilder(normalized).reverse().toString()));
-            if (!skeleton.equals(normalized)) {
-                layers.add(new Layer("rot13", skeleton(rot13(lower))));
+            if (skeleton != null) {
+                layers.add(new Layer("rot13", rot13(skeleton)));
                 layers.add(new Layer("reversed", new StringBuilder(skeleton).reverse().toString()));
             }
         }
@@ -156,6 +160,11 @@ final class TextNormalizer {
     static boolean mayBeEncoded(String normalized) {
         if (ENCODING_HINT.matcher(normalized).find()) {
             return true;
+        }
+        if (normalized.length() > MAX_UNHINTED_ENCODED_LENGTH) {
+            // A long document is mostly prose, code or data: without a hint, scanning it
+            // rotated and reversed doubles the cost for payloads a model would not decode
+            return false;
         }
         String[] tokens = normalized.split("[^\\p{L}]+");
         int words = 0;
@@ -386,6 +395,61 @@ final class TextNormalizer {
             case '€': return 'e';
             default: return c;
         }
+    }
+
+    /**
+     * The skeleton view, or {@code null} when it equals the normalized text. For long
+     * texts only the lines that actually change (plus one line of context on each side)
+     * are kept: unchanged text is already covered by the normalized view, and scanning
+     * a second full copy of a large document doubled the cost. Lines longer than
+     * {@value #MAX_SEGMENT_LENGTH} characters are cut into overlapping pieces.
+     */
+    static String changedSkeleton(String visible) {
+        if (visible.length() <= WHOLE_SKELETON_LENGTH) {
+            String whole = skeleton(foldKeepingSpaces(visible));
+            return whole.equals(fold(visible)) ? null : whole;
+        }
+        List<String> segments = segments(visible);
+        boolean[] changed = new boolean[segments.size()];
+        String[] skeletons = new String[segments.size()];
+        boolean any = false;
+        for (int i = 0; i < segments.size(); i++) {
+            skeletons[i] = skeleton(foldKeepingSpaces(segments.get(i)));
+            changed[i] = !skeletons[i].equals(fold(segments.get(i)));
+            any |= changed[i];
+        }
+        if (!any) {
+            return null;
+        }
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < segments.size(); i++) {
+            boolean keep = changed[i] || i > 0 && changed[i - 1] || i + 1 < segments.size() && changed[i + 1];
+            if (keep) {
+                out.append(skeletons[i]).append(' ');
+            } else if (out.length() > 0 && out.charAt(out.length() - 1) != '\n') {
+                out.append('\n');
+            }
+        }
+        return out.toString().strip();
+    }
+
+    /** Lines, with long lines cut into pieces that overlap by half a piece. */
+    private static List<String> segments(String text) {
+        List<String> segments = new ArrayList<>();
+        for (String line : text.split("\n")) {
+            if (line.length() <= MAX_SEGMENT_LENGTH) {
+                segments.add(line);
+                continue;
+            }
+            int step = MAX_SEGMENT_LENGTH / 2;
+            for (int start = 0; start < line.length(); start += step) {
+                segments.add(line.substring(start, Math.min(line.length(), start + MAX_SEGMENT_LENGTH)));
+                if (start + MAX_SEGMENT_LENGTH >= line.length()) {
+                    break;
+                }
+            }
+        }
+        return segments;
     }
 
     /** Expects lower-case text with its original spacing; returns it with whitespace collapsed. */
