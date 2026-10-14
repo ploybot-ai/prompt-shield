@@ -71,30 +71,30 @@ The AI receives placeholders like `~REDACTED:DNI#1c9f96~` instead of actual DNI 
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-core</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
 </dependency>
 
 <!-- Spring Boot Starter (optional) -->
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-spring-boot-starter</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
 </dependency>
 
 <!-- Spring AI Advisor (optional) -->
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-spring-ai-advisor</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'com.ploybot:prompt-shield-core:1.4.0'
-implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.4.0'
-implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.4.0'
+implementation 'com.ploybot:prompt-shield-core:1.5.0'
+implementation 'com.ploybot:prompt-shield-spring-boot-starter:1.5.0'
+implementation 'com.ploybot:prompt-shield-spring-ai-advisor:1.5.0'
 ```
 
 ## Usage
@@ -310,7 +310,7 @@ prompt-shield:
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-storage-redis</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
 </dependency>
 ```
 
@@ -334,7 +334,7 @@ spring:
 <dependency>
     <groupId>com.ploybot</groupId>
     <artifactId>prompt-shield-storage-jpa</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
 </dependency>
 ```
 
@@ -442,6 +442,11 @@ hide an instruction.
 > just asks for a plausible action, passes. Adaptive attackers who know the rules will
 > find bypasses. Keep least privilege for tools and human confirmation for sensitive
 > actions. Measured results and trade-offs: [docs/prompt-injection-report.md](docs/prompt-injection-report.md).
+
+**Cost.** On one core, the median message takes about 0.13 ms (p99 0.7 ms) and long
+documents about 0.5 ms per KB (a 1 MB document, under half a second). Verdicts are cached
+by content, so the conversation history is not scanned again on every turn. Turning
+`deobfuscation` off halves the cost and makes every obfuscated payload invisible.
 
 ```yaml
 prompt-shield:

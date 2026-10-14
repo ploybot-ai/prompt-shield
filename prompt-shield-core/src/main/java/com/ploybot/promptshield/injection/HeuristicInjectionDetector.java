@@ -46,6 +46,7 @@ public class HeuristicInjectionDetector implements InjectionDetector {
     private final Map<ContentSource, Double> thresholds;
     private final Pattern placeholderPattern;
     private final boolean deobfuscation;
+    private final RuleIndex index;
 
     public HeuristicInjectionDetector() {
         this(builder());
@@ -62,6 +63,7 @@ public class HeuristicInjectionDetector implements InjectionDetector {
         this.thresholds = new EnumMap<>(builder.thresholds);
         this.placeholderPattern = builder.placeholderPattern;
         this.deobfuscation = builder.deobfuscation;
+        this.index = new RuleIndex(rules);
     }
 
     public static Builder builder() {
@@ -89,7 +91,10 @@ public class HeuristicInjectionDetector implements InjectionDetector {
         Set<String> plainMatches = new HashSet<>();
         String lowerRaw = null;
 
-        for (InjectionRule rule : rules) {
+        List<TextNormalizer.Layer> layers = normalized.layers();
+        RuleIndex.Scan[] scans = new RuleIndex.Scan[layers.size()];
+        for (int r = 0; r < rules.size(); r++) {
+            InjectionRule rule = rules.get(r);
             double weight = rule.weight(effectiveSource);
             if (weight <= 0) {
                 continue;
@@ -108,12 +113,19 @@ public class HeuristicInjectionDetector implements InjectionDetector {
                 }
                 continue;
             }
-            for (TextNormalizer.Layer layer : normalized.layers()) {
-                if (!rule.mayMatch(layer.text())) {
+            for (int l = 0; l < layers.size(); l++) {
+                TextNormalizer.Layer layer = layers.get(l);
+                if (scans[l] == null) {
+                    scans[l] = index.scan(layer.text());
+                }
+                if (!scans[l].mayMatch(r)) {
                     continue;
                 }
                 Matcher matcher = rule.pattern().matcher(layer.text());
-                if (find(matcher, rule, layer.name(), signals)) {
+                boolean found = index.hasPrefixes(r)
+                        ? findAt(matcher, scans[l].candidates(r), scans[l].candidateCount(r), rule, layer.name(), signals)
+                        : find(matcher, rule, layer.name(), signals);
+                if (found) {
                     if (PLAIN_LAYERS.contains(layer.name())) {
                         plainMatches.add(rule.id());
                     }
@@ -150,6 +162,34 @@ public class HeuristicInjectionDetector implements InjectionDetector {
     private static boolean find(Matcher matcher, InjectionRule rule, String layer, Map<String, InjectionSignal> signals) {
         try {
             return matcher.find();
+        } catch (StackOverflowError e) {
+            signals.put("engine.regex-overflow", new InjectionSignal("engine.regex-overflow",
+                    InjectionCategory.OBFUSCATION, 0.5, layer, "rule " + rule.id() + " overflowed the regex engine"));
+            return false;
+        }
+    }
+
+    /**
+     * Same result as {@link #find} when every match starts at one of the candidates:
+     * {@code find()} tries every position in order, this only the candidates. Transparent,
+     * non-anchoring bounds let word boundaries and lookbehinds see the text before the
+     * candidate, as they do in a full search.
+     */
+    private static boolean findAt(Matcher matcher, int[] candidates, int count, InjectionRule rule, String layer,
+                                  Map<String, InjectionSignal> signals) {
+        if (count == 0) {
+            return false;
+        }
+        matcher.useTransparentBounds(true).useAnchoringBounds(false);
+        int end = matcher.regionEnd();
+        try {
+            for (int i = 0; i < count; i++) {
+                matcher.region(candidates[i], end);
+                if (matcher.lookingAt()) {
+                    return true;
+                }
+            }
+            return false;
         } catch (StackOverflowError e) {
             signals.put("engine.regex-overflow", new InjectionSignal("engine.regex-overflow",
                     InjectionCategory.OBFUSCATION, 0.5, layer, "rule " + rule.id() + " overflowed the regex engine"));

@@ -52,15 +52,9 @@ final class TextNormalizer {
     private static final int MAX_SEGMENT_LENGTH = 2000;
     private static final int MIN_DECODED_LENGTH = 8;
 
-    private static final Pattern MARKS = Pattern.compile("\\p{Mn}+");
-    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
-    private static final Pattern BASE64_TOKEN = Pattern.compile("(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{16,}={0,2}");
-    private static final Pattern BASE32_TOKEN = Pattern.compile("(?<![A-Za-z0-9])[A-Z2-7]{16,}={0,6}(?![A-Za-z0-9])");
     private static final String BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     private static final Pattern PERCENT = Pattern.compile("%[0-9a-fA-F]{2}");
     private static final Pattern HTML_ENTITY = Pattern.compile("&#(?:(\\d{2,7})|[xX]([0-9a-fA-F]{2,6}));");
-    private static final Pattern MARKDOWN_EMPHASIS = Pattern.compile("[*`]+|~~");
-    private static final Pattern IN_WORD_SEPARATORS = Pattern.compile("(?<=\\p{L})[*_~`^|'\\u00b7\\u2022-]{1,2}(?=\\p{L})");
 
     private TextNormalizer() {
     }
@@ -85,14 +79,15 @@ final class TextNormalizer {
             return new Result(normalized, layers, stats);
         }
 
-        String skeleton = changedSkeleton(visible);
+        String skeleton = changedSkeleton(visible, normalized);
         if (skeleton != null) {
             layers.add(new Layer("skeleton", skeleton));
         }
         if (!invisible.hidden.isEmpty()) {
-            String hidden = fold(invisible.hidden.toString());
+            String hiddenKeepingSpaces = foldKeepingSpaces(invisible.hidden.toString());
+            String hidden = collapseWhitespace(hiddenKeepingSpaces);
             layers.add(new Layer("hidden", hidden));
-            String hiddenSkeleton = skeleton(foldKeepingSpaces(invisible.hidden.toString()));
+            String hiddenSkeleton = skeleton(hiddenKeepingSpaces);
             if (!hiddenSkeleton.equals(hidden)) {
                 layers.add(new Layer("hidden", hiddenSkeleton));
             }
@@ -120,9 +115,10 @@ final class TextNormalizer {
 
     private static void addDecoded(List<Layer> layers, String name, String decoded) {
         if (decoded != null && !decoded.isBlank()) {
-            String folded = fold(decoded);
+            String keepingSpaces = foldKeepingSpaces(decoded);
+            String folded = collapseWhitespace(keepingSpaces);
             layers.add(new Layer(name, folded));
-            String skeleton = skeleton(foldKeepingSpaces(decoded));
+            String skeleton = skeleton(keepingSpaces);
             if (!skeleton.equals(folded)) {
                 layers.add(new Layer(name, skeleton));
             }
@@ -131,16 +127,89 @@ final class TextNormalizer {
 
     /** NFKC, diacritics removed, lower case, whitespace collapsed. */
     static String fold(String text) {
-        return WHITESPACE.matcher(foldKeepingSpaces(text)).replaceAll(" ").strip();
+        return collapseWhitespace(foldKeepingSpaces(text));
     }
 
     /** Like {@link #fold} but keeps the original spacing, which tells words apart in "i g n o r e  a l l". */
     private static String foldKeepingSpaces(String text) {
+        if (isAscii(text)) {
+            // ASCII is already in every normalization form and has no combining marks
+            return text.toLowerCase(Locale.ROOT);
+        }
         String nfkc = Normalizer.normalize(text, Normalizer.Form.NFKC);
         String decomposed = Normalizer.normalize(nfkc, Normalizer.Form.NFD);
         // Recompose what is left: Hangul syllables would otherwise stay as separate jamo
-        String withoutMarks = Normalizer.normalize(MARKS.matcher(decomposed).replaceAll(""), Normalizer.Form.NFC);
+        String withoutMarks = Normalizer.normalize(removeMarks(decomposed), Normalizer.Form.NFC);
         return withoutMarks.toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isAscii(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) >= 0x80) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Removes non-spacing marks (\p{Mn}); the first of them is U+0300. */
+    static String removeMarks(String text) {
+        StringBuilder out = null;
+        int copied = 0;
+        int i = 0;
+        while (i < text.length()) {
+            char c = text.charAt(i);
+            if (c < 0x300) {
+                i++;
+                continue;
+            }
+            int cp = text.codePointAt(i);
+            int next = i + Character.charCount(cp);
+            if (Character.getType(cp) == Character.NON_SPACING_MARK) {
+                if (out == null) {
+                    out = new StringBuilder(text.length());
+                }
+                out.append(text, copied, i);
+                copied = next;
+            }
+            i = next;
+        }
+        return out == null ? text : out.append(text, copied, text.length()).toString();
+    }
+
+    /** Runs of {@code \s} ({@code [ \t\n\x0B\f\r]}) replaced by one space, then stripped. */
+    static String collapseWhitespace(String text) {
+        StringBuilder out = null;
+        int n = text.length();
+        int i = 0;
+        while (i < n) {
+            if (!isRegexSpace(text.charAt(i))) {
+                if (out != null) {
+                    out.append(text.charAt(i));
+                }
+                i++;
+                continue;
+            }
+            int end = i + 1;
+            while (end < n && isRegexSpace(text.charAt(end))) {
+                end++;
+            }
+            if (out == null) {
+                if (end - i == 1 && text.charAt(i) == ' ') {
+                    // Already a single space: nothing to rewrite yet
+                    i = end;
+                    continue;
+                }
+                out = new StringBuilder(n).append(text, 0, i);
+            }
+            out.append(' ');
+            i = end;
+        }
+        return (out == null ? text : out.toString()).strip();
+    }
+
+    private static boolean isRegexSpace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' || c == '\r';
     }
 
     private static final java.util.Set<String> FUNCTION_WORDS = java.util.Set.of(
@@ -148,9 +217,12 @@ final class TextNormalizer {
             "with", "be", "i", "we", "not", "your", "my", "de", "la", "el", "que", "y", "en", "los", "las", "un",
             "una", "es", "por", "con", "para", "no", "se", "le", "et", "les", "des", "du", "der", "die", "und",
             "das", "ist", "il", "di", "che", "e", "o", "do", "da", "um", "uma");
-    private static final Pattern ENCODING_HINT = Pattern.compile(
-            "rot-?\\s?13|caesar|cesar|cipher|cifra|decod|descodif|decrypt|descifr|revers|backwards|al reves|"
-                    + "invert|mirror|espejo|right to left|derecha a izquierda");
+    private static final Pattern ROT13_HINT = Pattern.compile("rot-?\\s?13");
+    /** With "rot-13", the hints of an encoded text. Searched with indexOf: a regex alternation tried at every position cost as much as the rest of the normalization. */
+    private static final List<String> ENCODING_HINTS = List.of("caesar", "cesar", "cipher", "cifra", "decod", "descodif",
+            "decrypt", "descifr", "revers", "backwards", "al reves", "invert", "mirror", "espejo", "right to left",
+            "derecha a izquierda");
+    private static final Pattern NON_LETTERS = Pattern.compile("[^\\p{L}]+");
 
     /**
      * Whether the rot13 and reversed views are worth scanning: the text mentions a
@@ -158,15 +230,20 @@ final class TextNormalizer {
      * prose loses them). Normal prose skips two full passes of the rules.
      */
     static boolean mayBeEncoded(String normalized) {
-        if (ENCODING_HINT.matcher(normalized).find()) {
+        if (normalized.contains("rot") && ROT13_HINT.matcher(normalized).find()) {
             return true;
+        }
+        for (String hint : ENCODING_HINTS) {
+            if (normalized.contains(hint)) {
+                return true;
+            }
         }
         if (normalized.length() > MAX_UNHINTED_ENCODED_LENGTH) {
             // A long document is mostly prose, code or data: without a hint, scanning it
             // rotated and reversed doubles the cost for payloads a model would not decode
             return false;
         }
-        String[] tokens = normalized.split("[^\\p{L}]+");
+        String[] tokens = NON_LETTERS.split(normalized);
         int words = 0;
         int common = 0;
         for (String token : tokens) {
@@ -404,18 +481,19 @@ final class TextNormalizer {
      * a second full copy of a large document doubled the cost. Lines longer than
      * {@value #MAX_SEGMENT_LENGTH} characters are cut into overlapping pieces.
      */
-    static String changedSkeleton(String visible) {
+    static String changedSkeleton(String visible, String folded) {
         if (visible.length() <= WHOLE_SKELETON_LENGTH) {
             String whole = skeleton(foldKeepingSpaces(visible));
-            return whole.equals(fold(visible)) ? null : whole;
+            return whole.equals(folded) ? null : whole;
         }
         List<String> segments = segments(visible);
         boolean[] changed = new boolean[segments.size()];
         String[] skeletons = new String[segments.size()];
         boolean any = false;
         for (int i = 0; i < segments.size(); i++) {
-            skeletons[i] = skeleton(foldKeepingSpaces(segments.get(i)));
-            changed[i] = !skeletons[i].equals(fold(segments.get(i)));
+            String keepingSpaces = foldKeepingSpaces(segments.get(i));
+            skeletons[i] = skeleton(keepingSpaces);
+            changed[i] = !skeletons[i].equals(collapseWhitespace(keepingSpaces));
             any |= changed[i];
         }
         if (!any) {
@@ -455,10 +533,77 @@ final class TextNormalizer {
 
     /** Expects lower-case text with its original spacing; returns it with whitespace collapsed. */
     static String skeleton(String lowerCase) {
-        String text = MARKDOWN_EMPHASIS.matcher(mapLetters(lowerCase)).replaceAll("");
-        text = IN_WORD_SEPARATORS.matcher(text).replaceAll("");
+        String text = removeMarkdownEmphasis(mapLetters(lowerCase));
+        text = removeInWordSeparators(text);
         text = joinSpacedLetters(text);
-        return WHITESPACE.matcher(text).replaceAll(" ").strip();
+        return collapseWhitespace(text);
+    }
+
+    /** Removes runs of {@code *} and backquotes, and {@code ~~} (the regex {@code [*`]+|~~}). */
+    static String removeMarkdownEmphasis(String text) {
+        StringBuilder out = null;
+        int n = text.length();
+        int copied = 0;
+        int i = 0;
+        while (i < n) {
+            char c = text.charAt(i);
+            int end = i;
+            if (c == '*' || c == '`') {
+                while (end < n && (text.charAt(end) == '*' || text.charAt(end) == '`')) {
+                    end++;
+                }
+            } else if (c == '~' && i + 1 < n && text.charAt(i + 1) == '~') {
+                end = i + 2;
+            } else {
+                i++;
+                continue;
+            }
+            if (out == null) {
+                out = new StringBuilder(n);
+            }
+            out.append(text, copied, i);
+            copied = end;
+            i = end;
+        }
+        return out == null ? text : out.append(text, copied, n).toString();
+    }
+
+    /**
+     * Removes one or two separators between letters ("ig-no_re", "i*g*n*o*r*e"): the regex
+     * {@code (?<=\p{L})[*_~`^|'\u00b7\u2022-]{1,2}(?=\p{L})} as a linear scan.
+     */
+    static String removeInWordSeparators(String text) {
+        StringBuilder out = null;
+        int n = text.length();
+        int copied = 0;
+        int i = 0;
+        while (i < n) {
+            int length = 0;
+            // Like the lookbehind of java.util.regex, which only looked at one char: a
+            // supplementary letter (a low surrogate) before the separator did not count
+            if (isInWordSeparator(text.charAt(i)) && i > 0 && Character.isLetter(text.charAt(i - 1))) {
+                if (i + 2 < n && isInWordSeparator(text.charAt(i + 1)) && Character.isLetter(text.codePointAt(i + 2))) {
+                    length = 2;
+                } else if (i + 1 < n && Character.isLetter(text.codePointAt(i + 1))) {
+                    length = 1;
+                }
+            }
+            if (length == 0) {
+                i++;
+                continue;
+            }
+            if (out == null) {
+                out = new StringBuilder(n);
+            }
+            out.append(text, copied, i);
+            copied = i + length;
+            i += length;
+        }
+        return out == null ? text : out.append(text, copied, n).toString();
+    }
+
+    private static boolean isInWordSeparator(char c) {
+        return "*_~`^|'\u00b7\u2022-".indexOf(c) >= 0;
     }
 
     /** Maps lookalikes everywhere and leetspeak inside tokens that also contain letters. */
@@ -635,23 +780,32 @@ final class TextNormalizer {
         return spaces >= 2;
     }
 
-    private static int mixedScriptTokens(String normalized) {
+    /** Words (separated by {@code \s}) with both Latin and Cyrillic or Greek letters. */
+    static int mixedScriptTokens(String normalized) {
         int count = 0;
-        for (String token : WHITESPACE.split(normalized)) {
-            boolean latin = false;
-            boolean other = false;
-            for (int k = 0; k < token.length(); k++) {
-                char c = token.charAt(k);
-                if (!Character.isLetter(c)) {
-                    continue;
+        boolean latin = false;
+        boolean other = false;
+        for (int k = 0; k <= normalized.length(); k++) {
+            if (k == normalized.length() || isRegexSpace(normalized.charAt(k))) {
+                if (latin && other) {
+                    count++;
                 }
-                Character.UnicodeScript script = Character.UnicodeScript.of(c);
-                latin |= script == Character.UnicodeScript.LATIN;
-                other |= script == Character.UnicodeScript.CYRILLIC || script == Character.UnicodeScript.GREEK;
+                latin = false;
+                other = false;
+                continue;
             }
-            if (latin && other) {
-                count++;
+            char c = normalized.charAt(k);
+            if (c < 0x80) {
+                // A-Z and a-z are the only ASCII letters, all Latin
+                latin |= c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z';
+                continue;
             }
+            if (!Character.isLetter(c)) {
+                continue;
+            }
+            Character.UnicodeScript script = Character.UnicodeScript.of(c);
+            latin |= script == Character.UnicodeScript.LATIN;
+            other |= script == Character.UnicodeScript.CYRILLIC || script == Character.UnicodeScript.GREEK;
         }
         return count;
     }
@@ -712,12 +866,35 @@ final class TextNormalizer {
         }
     }
 
-    private static String decodeBase64(String text) {
+    /**
+     * Base64 (or base64url) runs of 16 or more characters with up to two padding
+     * characters: the matches of {@code (?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{16,}={0,2}},
+     * found with a linear scan.
+     */
+    static String decodeBase64(String text) {
         StringBuilder out = new StringBuilder();
-        Matcher matcher = BASE64_TOKEN.matcher(text);
         int segments = 0;
-        while (matcher.find() && segments < MAX_DECODED_SEGMENTS) {
-            String token = matcher.group();
+        int n = text.length();
+        int i = 0;
+        while (i < n && segments < MAX_DECODED_SEGMENTS) {
+            if (!isBase64Char(text.charAt(i)) || i > 0 && (isBase64Char(text.charAt(i - 1)) || text.charAt(i - 1) == '=')) {
+                i++;
+                continue;
+            }
+            int end = i;
+            while (end < n && isBase64Char(text.charAt(end))) {
+                end++;
+            }
+            if (end - i < 16) {
+                i = end;
+                continue;
+            }
+            int padded = end;
+            while (padded < n && padded - end < 2 && text.charAt(padded) == '=') {
+                padded++;
+            }
+            String token = text.substring(i, padded);
+            i = padded;
             if (!hasMixedCaseOrDigits(token)) {
                 continue;
             }
@@ -728,6 +905,11 @@ final class TextNormalizer {
             }
         }
         return out.toString();
+    }
+
+    private static boolean isBase64Char(char c) {
+        return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '+' || c == '/' || c == '_'
+                || c == '-';
     }
 
     /** Plain long words are not base64; real payloads mix cases and digits. */
@@ -804,12 +986,34 @@ final class TextNormalizer {
     }
 
     /** RFC 4648 base32 runs (upper case, as produced by common encoders). */
-    private static String decodeBase32(String text) {
+    static String decodeBase32(String text) {
         StringBuilder out = new StringBuilder();
-        Matcher matcher = BASE32_TOKEN.matcher(text);
         int segments = 0;
-        while (matcher.find() && segments < MAX_DECODED_SEGMENTS) {
-            String token = matcher.group().replace("=", "");
+        int n = text.length();
+        int i = 0;
+        // The matches of (?<![A-Za-z0-9])[A-Z2-7]{16,}={0,6}(?![A-Za-z0-9]), found with a linear scan
+        while (i < n && segments < MAX_DECODED_SEGMENTS) {
+            if (!isBase32Char(text.charAt(i)) || i > 0 && isAsciiAlphanumeric(text.charAt(i - 1))) {
+                i++;
+                continue;
+            }
+            int end = i;
+            while (end < n && isBase32Char(text.charAt(end))) {
+                end++;
+            }
+            int padding = 0;
+            while (end + padding < n && padding < 6 && text.charAt(end + padding) == '=') {
+                padding++;
+            }
+            // Without padding the run must end the word; with padding, backing off one "=" always ends it
+            boolean ends = padding > 0 || end == n || !isAsciiAlphanumeric(text.charAt(end));
+            if (end - i < 16 || !ends) {
+                i = end;
+                continue;
+            }
+            String token = text.substring(i, end);
+            i = padding > 0 && end + padding < n && isAsciiAlphanumeric(text.charAt(end + padding))
+                    ? end + padding - 1 : end + padding;
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(token.length() * 5 / 8);
             int buffer = 0;
             int bits = 0;
@@ -830,7 +1034,18 @@ final class TextNormalizer {
         return out.toString();
     }
 
+    private static boolean isBase32Char(char c) {
+        return c >= 'A' && c <= 'Z' || c >= '2' && c <= '7';
+    }
+
+    private static boolean isAsciiAlphanumeric(char c) {
+        return c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9';
+    }
+
     private static String decodePercent(String text) {
+        if (text.indexOf('%') < 0) {
+            return null;
+        }
         Matcher matcher = PERCENT.matcher(text);
         int count = 0;
         while (matcher.find()) {
@@ -859,6 +1074,9 @@ final class TextNormalizer {
     }
 
     private static String decodeEntities(String text) {
+        if (!text.contains("&#")) {
+            return null;
+        }
         Matcher matcher = HTML_ENTITY.matcher(text);
         StringBuilder out = new StringBuilder();
         int count = 0;
