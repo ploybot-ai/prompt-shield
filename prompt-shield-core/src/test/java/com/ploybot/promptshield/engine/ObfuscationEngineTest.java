@@ -577,4 +577,16 @@ class ObfuscationEngineTest {
             org.junit.jupiter.api.Assertions.assertEquals(input, scope.restore(obfuscated));
         }
     }
+
+    @org.junit.jupiter.api.Test
+    void longRunsWithoutAtSignAreLinear() {
+        ObfuscationScope scope = new ObfuscationEngine().forScope("dos");
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () -> {
+            for (String input : new String[]{"a.".repeat(100_000), "1".repeat(200_000), "a".repeat(200_000)}) {
+                scope.obfuscate(input);
+            }
+        });
+        org.junit.jupiter.api.Assertions.assertEquals("Mail: ~", scope.obfuscate("Mail: first.last+tag@sub.example.co.uk").substring(0, 7));
+        org.junit.jupiter.api.Assertions.assertTrue(scope.obfuscate("<mailto:juan@example.com>").startsWith("<mailto:~REDACTED:EMAIL#"));
+    }
 }
