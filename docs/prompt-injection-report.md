@@ -265,7 +265,38 @@ modo `monitor`.
 
 ## 9. Comparación con alternativas de código abierto
 
-<!-- OSS -->
+`scripts/compare_oss.py` ejecuta alternativas de código abierto sobre el mismo corpus
+materializado, en local y sin descargas. **Recall / FPR** por conjunto (el FPR de
+review-r1-* es alto por diseño):
+
+| Detector | dev-mutated | BIPIA (held-out) | LLM Guard tests | prompt-shield-ai sample | review holdout | mediana |
+|---|---|---|---|---|---|---|
+| **este PR** (heurístico, 0,5) | 98,6 % / 5,3 % | 2,0 % / 0,5 % | 46,9 % / 0 % | 72,0 % / 0 % | 30,3 % / 25 % | 0,63 ms |
+| Vigil, reglas YARA de inyección [16] | 1,6 % / 0 % | 0 % / 0 % | 0 % / 0 % | 0 % / 0 % | 0 % / 0 % | 0,005 ms |
+| LLM Guard `InvisibleText` | 19,1 % / 10,7 % | 0 % / 0 % | 0 % / 0 % | 0 % / 0 % | 0 % / 5 % | 0,013 ms |
+| prompt-shield-ai 0.8.1 (PyPI, motor heurístico) | 53,7 % / 30,6 % | 51,5 % / **58,0 %** | 57,1 % / 27,3 % | 84,0 % / 0 % | 9,1 % / 35 % | 33,9 ms |
+| Rebuff, heurística [16] (submuestra de 150 textos ≤400 caracteres) | — | — | — | — | — | ≈15 s |
+
+En la submuestra de Rebuff, Rebuff obtiene un recall del 2,0 % con un FPR del 5,8 %; este
+PR (v1), un 98,0 % con el mismo FPR.
+
+**Notas:**
+
+- Vigil, por defecto, solo alerta cuando coinciden tres escáneres. Aquí se usaron solo sus
+  reglas YARA de inyección, sin las de secretos, IPs o claves SSH.
+- **prompt-shield-ai** es un proyecto distinto con el mismo nombre. Se evaluó con el vault
+  vectorial, el clasificador semántico y el detector de PII desactivados, porque requieren
+  descargas o no son de inyección. Su mayor recall en BIPIA se paga con un FPR del 58 %
+  en los emails, tablas y código limpios, inutilizable en documentos.
+- **Ventaja de casa**: cada detector rinde mejor en su propio conjunto (prompt-shield-ai en
+  su muestra, el de este PR en `dev`). Las columnas comparables son las ajenas a ambos:
+  BIPIA, LLM Guard tests y review holdout.
+- **Modelos.** No se pudieron ejecutar Llama Prompt Guard 2 ni protectai DeBERTa v2, ni
+  el escáner `PromptInjection` de LLM Guard que usa DeBERTa: huggingface.co no era
+  accesible. En PINT [5] obtienen 78,8 % y 79,1 %. Los clasificadores son sensibles a la
+  inyección de caracteres [6], justo lo que cubre la normalización de este PR, así que la
+  combinación (`CompositeInjectionDetector`) es complementaria. Pendiente de medir.
+
 
 ## 10. Revisión crítica independiente
 
