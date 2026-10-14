@@ -223,7 +223,17 @@ public class HeuristicInjectionDetector implements InjectionDetector {
 
     private static final Pattern LANGUAGE_VARIANT = Pattern.compile("^(\\w+)\\.(?:en|es|fr|de|pt|it|ca|ru|zh|fr-de-pt-it|ru-zh)$");
 
+    /** Rules that fire on the same words ("Dear assistant,") and must not add up. */
+    private static final Map<String, String> SHARED_FAMILIES = Map.of(
+            "addressed.greeting", "addressed.vocative",
+            "override.en-given", "override.*",
+            "override.en-weak-verb", "override.*");
+
     static String family(String ruleId) {
+        String shared = SHARED_FAMILIES.get(ruleId);
+        if (shared != null) {
+            return shared;
+        }
         Matcher matcher = LANGUAGE_VARIANT.matcher(ruleId);
         return matcher.matches() ? matcher.group(1) + ".*" : ruleId;
     }

@@ -23,6 +23,8 @@ import java.util.Locale;
  *   <li>{@code dev-mutated}: the seeds after the deterministic {@link Mutators}:
  *       Unicode tricks, encodings, documents and MCP tool results.</li>
  *   <li>{@code bipia-train}: BIPIA's train split, used to tune the indirect rules.</li>
+ *   <li>{@code review-r1-tune} / {@code review-r1-holdout}: adaptive cases by the
+ *       independent reviewer (see {@link #REVIEW}).</li>
  *   <li>External, held-out sets (scripts/import_external.py), never used to tune
  *       rules: {@code bipia}, {@code llm-guard-tests}, {@code prompt-shield-ai-sample},
  *       {@code pint-example}.</li>
@@ -35,6 +37,12 @@ public final class Corpus {
     public static final List<String> EXTERNAL = List.of("bipia", "llm-guard-tests", "prompt-shield-ai-sample", "pint-example");
     /** BIPIA's train split: third-party, but used to tune the indirect-injection rules (not held out). */
     public static final String BIPIA_TRAIN = "bipia-train";
+    /**
+     * Written by an independent reviewer who knew the v1 rules (adaptive attacks and
+     * hard negatives); every attack bypassed v1. The tune half was read to write v2; the
+     * holdout half was only measured.
+     */
+    public static final List<String> REVIEW = List.of("review-r1-tune", "review-r1-holdout");
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String ROOT = "/injection-corpus/";
@@ -60,6 +68,9 @@ public final class Corpus {
         List<Sample> samples = new ArrayList<>(seeds);
         samples.addAll(new Mutators(seed).mutate(seeds));
         samples.addAll(load(ROOT + "external/" + BIPIA_TRAIN + ".jsonl", BIPIA_TRAIN));
+        for (String name : REVIEW) {
+            samples.addAll(load(ROOT + "review/" + name + ".jsonl", name));
+        }
         for (String name : EXTERNAL) {
             samples.addAll(external(name));
         }

@@ -51,6 +51,8 @@ final class TextNormalizer {
     private static final Pattern MARKS = Pattern.compile("\\p{Mn}+");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static final Pattern BASE64_TOKEN = Pattern.compile("(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{16,}={0,2}");
+    private static final Pattern BASE32_TOKEN = Pattern.compile("(?<![A-Za-z0-9])[A-Z2-7]{16,}={0,6}(?![A-Za-z0-9])");
+    private static final String BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
     private static final Pattern PERCENT = Pattern.compile("%[0-9a-fA-F]{2}");
     private static final Pattern HTML_ENTITY = Pattern.compile("&#(?:(\\d{2,7})|[xX]([0-9a-fA-F]{2,6}));");
     private static final Pattern MARKDOWN_EMPHASIS = Pattern.compile("[*`]+|~~");
@@ -91,9 +93,11 @@ final class TextNormalizer {
                 layers.add(new Layer("hidden", hiddenSkeleton));
             }
         }
+        addDecoded(layers, "json-fields", jsonFields(raw));
         String source = invisible.visible.toString() + (invisible.hidden.isEmpty() ? "" : "\n" + invisible.hidden);
         addDecoded(layers, "base64", decodeBase64(source));
         addDecoded(layers, "hex", decodeHex(source));
+        addDecoded(layers, "base32", decodeBase32(source));
         addDecoded(layers, "url", decodePercent(source));
         addDecoded(layers, "html-entities", decodeEntities(source));
         if (invisible.bidiControls > 0 || mayBeEncoded(normalized)) {
@@ -130,7 +134,9 @@ final class TextNormalizer {
     private static String foldKeepingSpaces(String text) {
         String nfkc = Normalizer.normalize(text, Normalizer.Form.NFKC);
         String decomposed = Normalizer.normalize(nfkc, Normalizer.Form.NFD);
-        return MARKS.matcher(decomposed).replaceAll("").toLowerCase(Locale.ROOT);
+        // Recompose what is left: Hangul syllables would otherwise stay as separate jamo
+        String withoutMarks = Normalizer.normalize(MARKS.matcher(decomposed).replaceAll(""), Normalizer.Form.NFC);
+        return withoutMarks.toLowerCase(Locale.ROOT);
     }
 
     private static final java.util.Set<String> FUNCTION_WORDS = java.util.Set.of(
@@ -531,6 +537,60 @@ final class TextNormalizer {
 
     // ---------------------------------------------------------------- decoders
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final int MAX_JSON_LENGTH = 1_000_000;
+
+    /**
+     * For a JSON document, the string values of each key joined in document order. A
+     * payload split across fields ("Please disregard" in one search snippet, "the
+     * earlier guidance" in the next) is read as one sentence by the model.
+     */
+    static String jsonFields(String raw) {
+        String trimmed = raw.strip();
+        if (trimmed.length() > MAX_JSON_LENGTH || !(trimmed.startsWith("{") || trimmed.startsWith("["))) {
+            return null;
+        }
+        com.fasterxml.jackson.databind.JsonNode root;
+        try {
+            root = JSON.readTree(trimmed);
+        } catch (Exception e) {
+            return null;
+        }
+        java.util.Map<String, StringBuilder> byKey = new java.util.LinkedHashMap<>();
+        collect(root, "", byKey, 0);
+        StringBuilder out = new StringBuilder();
+        for (StringBuilder joined : byKey.values()) {
+            if (joined.indexOf("\u0000") >= 0) {
+                out.append(joined.toString().replace('\u0000', ' ')).append(" .\n");
+            }
+        }
+        return out.isEmpty() ? null : out.toString();
+    }
+
+    /** Joins with a NUL marker so that keys with a single value can be skipped. */
+    private static void collect(com.fasterxml.jackson.databind.JsonNode node, String key,
+                                java.util.Map<String, StringBuilder> byKey, int depth) {
+        if (depth > 64) {
+            return;
+        }
+        if (node.isTextual()) {
+            StringBuilder joined = byKey.get(key);
+            if (joined == null) {
+                byKey.put(key, new StringBuilder(node.asText()));
+            } else {
+                joined.append('\u0000').append(node.asText());
+            }
+        } else if (node.isArray()) {
+            for (com.fasterxml.jackson.databind.JsonNode item : node) {
+                collect(item, key, byKey, depth + 1);
+            }
+        } else if (node.isObject()) {
+            for (java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode> field : node.properties()) {
+                collect(field.getValue(), field.getKey(), byKey, depth + 1);
+            }
+        }
+    }
+
     private static String decodeBase64(String text) {
         StringBuilder out = new StringBuilder();
         Matcher matcher = BASE64_TOKEN.matcher(text);
@@ -618,6 +678,33 @@ final class TextNormalizer {
                 }
             }
             i = j > i ? j : i + 1;
+        }
+        return out.toString();
+    }
+
+    /** RFC 4648 base32 runs (upper case, as produced by common encoders). */
+    private static String decodeBase32(String text) {
+        StringBuilder out = new StringBuilder();
+        Matcher matcher = BASE32_TOKEN.matcher(text);
+        int segments = 0;
+        while (matcher.find() && segments < MAX_DECODED_SEGMENTS) {
+            String token = matcher.group().replace("=", "");
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(token.length() * 5 / 8);
+            int buffer = 0;
+            int bits = 0;
+            for (int k = 0; k < token.length(); k++) {
+                buffer = (buffer << 5) | BASE32_ALPHABET.indexOf(token.charAt(k));
+                bits += 5;
+                if (bits >= 8) {
+                    bytes.write((buffer >> (bits - 8)) & 0xFF);
+                    bits -= 8;
+                }
+            }
+            String decoded = printable(decodeUtf8(bytes.toByteArray()));
+            if (decoded != null) {
+                out.append(decoded).append('\n');
+                segments++;
+            }
         }
         return out.toString();
     }

@@ -23,7 +23,10 @@ import static com.ploybot.promptshield.injection.InjectionCategory.TOOL_HIJACK;
  *
  * <p>English, Spanish, French, German, Portuguese, Italian, Catalan, Russian and
  * Chinese are covered for the most common attack families. Patterns are written
- * against the normalized views: lower case, no accents.
+ * against the normalized views: lower case, no accents, no combining marks. Marks are
+ * removed in every script, so Japanese voiced kana lose their dakuten ("これまで" is
+ * matched as "これまて", "プロンプト" as "フロンフト") and Devanagari or Thai words lose
+ * their dependent vowel signs.
  */
 final class BuiltInRules {
 
@@ -36,9 +39,13 @@ final class BuiltInRules {
     }
 
     // English vocabulary
-    private static final String EN_OVERRIDE_VERB = "(?:ignore|ignoring|disregard|disregarding|forget|bypass|circumvent|"
-            + "stop following|do not follow|dont follow|don't follow|no longer follow|stop obeying|do not obey|dont obey|"
-            + "set aside|neglect)";
+    private static final String EN_OVERRIDE_VERB = "(?:ignor(?:e|es|ed|ing)|disregard(?:s|ed|ing)?|forget(?:s|ting)?|"
+            + "forgot(?:ten)?|bypass(?:es|ed|ing)?|circumvent(?:s|ed|ing)?|stop following|do not follow|dont follow|"
+            + "don't follow|no longer follow|stop obeying|do not obey|dont obey|set aside|put aside|cast aside|"
+            + "neglect(?:s|ed|ing)?|pay no (?:heed|attention|mind) to|take no notice of|let go of|move past|look past|"
+            + "turn a blind eye to|stop adhering to|no longer adhere to)";
+    /** A negation right before the verb ("must not disregard these safety protocols") reverses the meaning. */
+    private static final String NOT_NEGATED = "(?<!\\b(?:not|never|dont|don't|cannot|can't|shouldn't|mustn't|no)\\W{1,2})";
     /** Verbs common in software and legal prose ("override the default settings"): need a possessive or prior modifier. */
     private static final String EN_WEAK_OVERRIDE_VERB = "(?:override|overriding|overwrite|replace|cancel|nullify|void|"
             + "supersede|scrap|drop|discard|abandon|skip|throw away|delete|erase|wipe)";
@@ -47,7 +54,7 @@ final class BuiltInRules {
             + "initial|original|system|developer|safety)|these|those)";
     private static final String EN_STRONG_NOUN = "(?:instructions?|prompts?|rules?|ruies|directives?|guidelines?|guidance|"
             + "system prompt|system message|programming|guardrails?|restrictions?|constraints?|policies|policy|"
-            + "safety (?:settings|measures|protocols)|training|directions|orders|commands?)";
+            + "safety (?:settings|measures|protocols)|directions|orders|commands?|rulebook|briefing)";
     private static final String EN_PRIOR = "(?:previous|prior|above|earlier|preceding|initial|original|old|existing|former|"
             + "system|developer|default|all|every|any|these|those|your|its|the|other|given|current|safety|preset|built-in|"
             + "programmed|predefined|initial)";
@@ -61,7 +68,8 @@ final class BuiltInRules {
     /** Data that is often legitimately forwarded ("forward the emails to accounting"). */
     private static final String EN_WEAK_SECRET = "(?:personal (?:data|information|details)|user'?s? (?:data|information|"
             + "details|emails?|address|password)|customer (?:data|records|list)|credit card|card numbers?|bank details|iban|"
-            + "contacts|inbox|emails|documents|files|confidential information)";
+            + "contacts|inbox|emails|documents|files|confidential information|(?:message|email|conversation) thread|"
+            + "transcript|meeting notes|account summary|welcome packet)";
     private static final String DESTINATION = "(?:https?://|www\\.|ftp://|[\\w.+-]+@[\\w-]+\\.[\\w.]+|attacker|external|"
             + "(?:this|the following|my|our|that) (?:url|address|endpoint|server|link|webhook|email)|url|webhook|endpoint|"
             + "server|domain|pastebin|discord|telegram|ngrok)";
@@ -72,7 +80,26 @@ final class BuiltInRules {
      * checks on the whole evaluation corpus that the anchors never change a verdict.
      */
     private static final Map<String, List<String>> ANCHORS = Map.ofEntries(
-            Map.entry("override.en", List.of("ignor", "disregard", "forget", "overrid", "bypass", "circumvent", "skip", "discard", "abandon", "neglect", "set aside", "follow", "obey", "cancel", "nullify", "void", "supersede", "replace", "scrap", "drop")),
+            Map.entry("override.en-given", List.of("given", "handed", "told", "issued", "provided", "assigned", "briefed", "instructed", "set")),
+            Map.entry("override.en-your-training", List.of("ignor", "forget", "forgot", "disregard", "overrid", "bypass", "set aside", "move past")),
+            Map.entry("override.en-withdrawn", List.of("treat", "consider", "regard", "deem", "count")),
+            Map.entry("override.en-stale", List.of("stale", "obsolete", "outdated", "cancel", "withdrawn", "void", "revoked", "no longer")),
+            Map.entry("override.es-withdrawn", List.of("ya no", "anulad", "no aplica", "considera", "trata", "dalas", "dalo")),
+            Map.entry("override.output-lock", List.of("every", "word", "palabra", "only")),
+            Map.entry("override.ja", List.of("無視", "忘れ", "従わな", "破棄")),
+            Map.entry("override.ko", List.of("무시", "잊어", "잊고", "따르지")),
+            Map.entry("override.nl-sv-pl-id-vi-tl", List.of("negeer", "vergeet", "ignorera", "bortse", "glom", "strunta", "zignoruj", "ignoruj", "zapomnij", "pomin", "abaikan", "lupakan", "acuhkan", "bo qua", "phot lo", "quen", "pansinin", "balewalain", "kalimutan")),
+            Map.entry("override.tr", List.of("yok say", "gormezden", "unut", "dikkate alma", "uymayi")),
+            Map.entry("override.ar-fa-hi-th", List.of("تجاهل", "انس", "اهمل", "نادیده", "فراموش", "अनदखा", "भल जा", "नजरअदाज", "उपकषा", "ละเวน", "เพกเฉย", "ไมสนใจ")),
+            Map.entry("role.authority-note", List.of("directive", "instruction", "note", "message", "notice", "override", "policy", "command", "order")),
+            Map.entry("leak.en-paraphrase", List.of("before", "above", "prior to", "ahead of", "how you")),
+            Map.entry("leak.verbatim", List.of("word for word", "verbatim", "literal", "character for character", "palabra por palabra")),
+            Map.entry("addressed.greeting", List.of("hey", "hi", "hello", "dear", "attention", "ok")),
+            Map.entry("addressed.generator", List.of("generating", "building", "writing", "producing", "compiling", "creating", "composing", "drafting", "preparing", "summari")),
+            Map.entry("addressed.reader-vocative", List.of("of this")),
+            Map.entry("addressed.multilingual", List.of("ai", "人工知能", "인공지능", "هوش مصنوعی", "yapay zekaya", "الذكاء الاصطناعي", "एआई", "ユーサー", "사용자에게")),
+            Map.entry("tool.poisoning-prose", List.of("argument", "parameter", "param", "field", "context", "request", "payload", "notes", "sidenote")),
+            Map.entry("override.en", List.of("ignor", "disregard", "forget", "forgot", "pay no", "take no notice", "put aside", "cast aside", "let go", "move past", "look past", "blind eye", "adher", "overrid", "bypass", "circumvent", "skip", "discard", "abandon", "neglect", "set aside", "follow", "obey", "cancel", "nullify", "void", "supersede", "replace", "scrap", "drop")),
             Map.entry("override.en-weak-verb", List.of("overrid", "overwrite", "replace", "cancel", "nullify", "void", "supersede", "scrap", "drop", "discard", "abandon", "skip", "throw away", "delete", "erase", "wipe")),
             Map.entry("role.developer-mode", List.of("mode", "modo")),
             Map.entry("role.false-authorization", List.of("authori", "permitted", "allowed", "cleared", "autoriz")),
@@ -83,7 +110,7 @@ final class BuiltInRules {
             Map.entry("override.en-prior-context", List.of("ignor", "disregard", "forget")),
             Map.entry("override.en-new-instructions", List.of("instruction", "directive", "order", "command", "task", "prompt", "objective")),
             Map.entry("override.en-your-new-task", List.of("your")),
-            Map.entry("override.en-from-now-on", List.of("from now on", "from this point", "henceforth", "for the rest of")),
+            Map.entry("override.en-from-now-on", List.of("from now on", "from this point", "from here", "from this message", "going forward", "henceforth", "for the rest of")),
             Map.entry("override.en-stop-task", List.of("stop", "cease", "abort", "halt", "pause")),
             Map.entry("override.en-instead", List.of("instead", "rather")),
             Map.entry("override.en-priority", List.of("precedence", "priority", "supersede", "overrid")),
@@ -97,13 +124,13 @@ final class BuiltInRules {
             Map.entry("override.it", List.of("istruzion", "regole", "direttive", "indicazioni", "comandi", "prompt", "ordini", "restrizioni")),
             Map.entry("override.ca", List.of("instrucci", "regles", "indicacions", "directrius", "ordres", "prompt")),
             Map.entry("override.ru", List.of("инструкци", "правил", "указани", "команд", "промпт", "ограничени", "директив")),
-            Map.entry("override.zh", List.of("指令", "指示", "说明", "规则", "提示", "设定", "命令", "限制")),
+            Map.entry("override.zh", List.of("無視", "指令", "指示", "说明", "规则", "提示", "设定", "命令", "限制")),
             Map.entry("role.chat-template-token", List.of("<|")),
             Map.entry("role.inst-tags", List.of("inst]", "sys>>", "_of_turn>", "[system]", "system_prompt]")),
             Map.entry("role.json-system-message", List.of("role")),
             Map.entry("role.fake-system-header", List.of("system", "developer", "admin", "root", "sistema", "assistant")),
             Map.entry("role.fake-turns", List.of("human", "user", "usuario")),
-            Map.entry("role.end-of-data", List.of("end of", "fin del")),
+            Map.entry("role.end-of-data", List.of("end of", "fin del", " ends", " ended", "is over")),
             Map.entry("role.closing-delimiter", List.of("</")),
             Map.entry("role.mode-switch", List.of("mode", "modo")),
             Map.entry("role.authority-claim", List.of("developer", "creator", "admin", "owner", "operator", "openai", "anthropic", "security team", "desarrollador", "creador")),
@@ -157,7 +184,44 @@ final class BuiltInRules {
 
         // ------------------------------------------------------------ instruction override (EN)
         r.add(InjectionRule.of("override.en", INSTRUCTION_OVERRIDE,
-                "\\b" + EN_OVERRIDE_VERB + "\\b" + gap(5) + "(?:" + EN_PRIOR + "\\W+)?" + EN_STRONG_NOUN + "\\b", 0.72, 0.8));
+                "\\b" + NOT_NEGATED + EN_OVERRIDE_VERB + "\\b" + gap(5) + "(?:" + EN_PRIOR + "\\W+)?" + EN_STRONG_NOUN + "\\b",
+                0.72, 0.8));
+        r.add(InjectionRule.of("override.en-given", INSTRUCTION_OVERRIDE,
+                "\\b" + NOT_NEGATED + "(?:" + EN_OVERRIDE_VERB.substring(3, EN_OVERRIDE_VERB.length() - 1) + "|"
+                        + EN_WEAK_OVERRIDE_VERB.substring(3, EN_WEAK_OVERRIDE_VERB.length() - 1)
+                        + "|shelve|shelves|shelved|ditch|ditches|ditched|toss(?: out)?|throw out|bin)\\W+(?:the\\W+|any\\W+|"
+                        + "all\\W+(?:the\\W+)?|whatever\\W+)?(?:\\w+\\W+)?" + EN_STRONG_NOUN + "\\W+(?:that\\W+|which\\W+)?"
+                        + "(?:you|you've|you have|you were|you've been|you have been|were)\\W+(?:been\\W+)?(?:given|handed|told|"
+                        + "issued|provided|assigned|briefed|instructed|set)\\b", 0.65, 0.75));
+        r.add(InjectionRule.of("override.en-your-training", INSTRUCTION_OVERRIDE,
+                "\\b" + NOT_NEGATED + "(?:ignor\\w*|forget\\w*|forgot\\w*|disregard\\w*|overrid\\w*|bypass\\w*|"
+                        + "set aside|move past)\\W+(?:all\\W+(?:of\\W+)?)?your\\W+(?:\\w+\\W+)?(?:training|programming|"
+                        + "conditioning|alignment|fine-?tuning)\\b", 0.65, 0.7));
+        r.add(InjectionRule.of("override.en-withdrawn", INSTRUCTION_OVERRIDE,
+                "\\b(?:treat|consider|regard|deem|count)\\W+(?:them|it|those|that|these|all (?:of )?(?:that|those|them|this)|"
+                        + "everything|anything)\\W+(?:as\\W+)?(?:cancel+ed|withdrawn|void|null|obsolete|revoked|retracted|"
+                        + "superseded|expired|no longer (?:valid|applicable|in effect|binding))\\b", 0.5, 0.6));
+        r.add(InjectionRule.of("override.en-stale", INSTRUCTION_OVERRIDE,
+                "\\b(?:the\\W+)?(?:instructions|directions|rules|guidance|guidelines|directives|orders|briefing|"
+                        + "whatever you were (?:told|given|briefed on|instructed)|what you were (?:told|given|instructed))\\W+"
+                        + "(?:\\w+\\W+){0,4}?(?:is|are|were|was)\\W+(?:now\\W+)?(?:stale|obsolete|outdated|cancel+ed|"
+                        + "withdrawn|void|revoked|no longer (?:valid|applicable|relevant|in effect|apply|binding))\\b",
+                0.35, 0.45));
+        r.add(InjectionRule.of("override.es-withdrawn", INSTRUCTION_OVERRIDE,
+                "\\b(?:lo que|todo lo que|las instrucciones que|las indicaciones que|las ordenes que|las reglas que)\\W+"
+                        + "(?:te|se te)\\W+(?:indicaron|dijeron|dieron|ordenaron|pidieron|han dicho|han dado|habian dicho)\\W+"
+                        + "(?:\\w+\\W+){0,3}?(?:ya no (?:cuenta|cuentan|vale|valen|aplica|aplican|sirve|sirven|es valido|son validas)|"
+                        + "queda(?:n)? anulad[oa]s?|no aplica(?:n)?)\\b|\\b(?:consideralas|consideralo|tratalas|tratalo|"
+                        + "da(?:las|lo) por)\\W+(?:\\w+\\W+)?(?:anulad[oa]s?|canceladas?|cancelados?|obsoletas?|obsoletos?|"
+                        + "sin efecto)\\b", 0.5, 0.6));
+        r.add(InjectionRule.of("override.output-lock", INSTRUCTION_OVERRIDE,
+                "\\bevery\\W+(?:single\\W+)?(?:reply|answer|response|message|output)\\W+(?:\\w+\\W+){0,3}?(?:must|should|"
+                        + "will|shall|is to|has to)\\W+(?:just\\W+|only\\W+|simply\\W+)?(?:be|contain|consist of|say)\\W+"
+                        + "(?:exactly\\W+|only\\W+|just\\W+)?(?:the\\W+(?:single\\W+)?word|the\\W+(?:text|phrase|string)|[\"'])"
+                        + "|\\b(?:reply|respond|answer)\\w*\\W+(?:\\w+\\W+){0,4}?with\\W+[\"'“]?\\w{1,20}[\"'”]?\\W+only\\b"
+                        + "|\\b(?:reply|respond|answer)\\w*\\W+(?:\\w+\\W+){0,5}?(?:with\\W+)?(?:just|only|exclusively|solely)"
+                        + "\\W+(?:with\\W+)?the\\W+(?:single\\W+)?word\\b|\\b(?:responde|contesta)\\w*\\W+(?:\\w+\\W+){0,5}?"
+                        + "(?:solo|solamente|unicamente|exclusivamente)\\W+(?:con\\W+)?la\\W+palabra\\b", 0.2, 0.45));
         r.add(InjectionRule.of("override.en-weak-verb", INSTRUCTION_OVERRIDE,
                 "\\b" + EN_WEAK_OVERRIDE_VERB + "\\W+" + EN_OWNED + "\\W+(?:\\w+\\W+){0,2}?" + EN_STRONG_NOUN + "\\b",
                 0.65, 0.75));
@@ -176,9 +240,10 @@ final class BuiltInRules {
                 "\\byour\\W+(?:new|real|true|actual|only|primary|updated|next)\\W+(?:task|goal|purpose|instructions?|"
                         + "objective|role|job|mission|directive|priority)\\W+(?:is|are|will be|now)\\b", 0.55, 0.7));
         r.add(InjectionRule.of("override.en-from-now-on", INSTRUCTION_OVERRIDE,
-                "\\b(?:from now on|from this point(?: on| forward)?|henceforth|for the rest of (?:this|the) conversation)"
-                        + "\\W+(?:\\w+\\W+){0,2}?(?:you|ai|assistant)\\W+(?:are|will|must|shall|should|have to|can|may|act|"
-                        + "respond|answer|only|always|never)\\b", 0.4, 0.55));
+                "\\b(?:from now on|from this point(?: on| forward)?|from here (?:on|out|onwards?)|from this message on|"
+                        + "going forward|henceforth|for the rest of (?:this|the|our) (?:conversation|chat|session))"
+                        + "\\W+(?:\\w+\\W+){0,2}?(?:(?:you|ai|assistant)\\W+)?(?:are|will|must|shall|should|have to|can|may|act|"
+                        + "respond|reply|answer|only|always|never|print|say|output)\\b", 0.4, 0.55));
         r.add(InjectionRule.of("override.en-stop-task", INSTRUCTION_OVERRIDE,
                 "\\b(?:stop|cease|abort|halt|pause)\\W+(?:what you are doing|your current task|the current task|"
                         + "summari[sz]ing|translating|processing|the summary|the translation)\\b", 0.35, 0.55));
@@ -187,7 +252,9 @@ final class BuiltInRules {
                         + "do the following|perform the following|follow these)\\b", 0.25, 0.4));
         r.add(InjectionRule.of("override.en-priority", INSTRUCTION_OVERRIDE,
                 "\\b(?:this|these|the following)\\W+(?:instructions?|message|directive|rules?)\\W+(?:\\w+\\W+){0,2}?"
-                        + "(?:take|takes|has|have)\\W+(?:precedence|priority)\\b|\\b(?:supersedes?|overrides?)\\W+"
+                        + "(?:take|takes|has|have)\\W+(?:precedence|priority)\\b|\\b(?<!(?:policy|agreement|contract|clause|version|"
+                        + "document|section|amendment|regulation|law|standard|edition|release|notice|terms|update|plan)\\W{1,2})"
+                        + "(?:supersedes?|overrides?)\\W+"
                         + "(?:all|any|every)\\W+(?:\\w+\\W+){0,1}?(?:previous|prior|other|existing)\\W+(?:instructions|"
                         + "directives|rules|prompts|guidelines|system prompts?|commands|orders|ones)\\b", 0.5, 0.65));
 
@@ -241,8 +308,29 @@ final class BuiltInRules {
                         + "не следуи\\w*|не выполняи\\w*)" + gap(5)
                         + "(?:инструкци\\w*|правил\\w*|указани\\w*|команд\\w*|промпт\\w*|ограничени\\w*|директив\\w*)", 0.72, 0.8));
         r.add(InjectionRule.unicode("override.zh", INSTRUCTION_OVERRIDE,
-                "(?:忽略|无视|忘记|忘掉|忽视|不要理会|跳过|不要遵守|不再遵守|覆盖)[^。！？\\n]{0,12}?"
+                "(?:忽略|无视|無視|忘记|忘掉|忽视|不要理会|跳过|不要遵守|不再遵守|覆盖)[^。！？\\n]{0,12}?"
                         + "(?:指令|指示|说明|规则|提示词|提示|设定|命令|限制)", 0.72, 0.8));
+
+        r.add(InjectionRule.unicode("override.ja", INSTRUCTION_OVERRIDE,
+                "(?:これまて|以前|前|上記|先ほと|最初|元)の[^。！？\\n]{0,10}?(?:指示|命令|ルール|フロンフト|指令)[^。！？\\n]{0,12}?"
+                        + "(?:無視|忘れ|従わな|破棄)|(?:無視|忘れ)[^。！？\\n]{0,6}?(?:指示|命令|ルール|フロンフト)", 0.72, 0.8));
+        r.add(InjectionRule.unicode("override.ko", INSTRUCTION_OVERRIDE,
+                "(?:이전|앞의|앞서|위의|기존|모든)[^.!?\\n]{0,15}?(?:지시|명령|지침|규칙|프롬프트|안내)[^.!?\\n]{0,12}?"
+                        + "(?:무시|잊어|잊고|따르지)", 0.72, 0.8));
+        r.add(InjectionRule.of("override.nl-sv-pl-id-vi-tl", INSTRUCTION_OVERRIDE,
+                "\\b(?:negeer|negeren|vergeet|ignorera|bortse fran|glom|strunta i|zignoruj|ignoruj|zapomnij|pomin|abaikan|"
+                        + "lupakan|acuhkan|bo qua|phot lo|quen di|huwag pansinin|balewalain|kalimutan)\\b" + gap(6)
+                        + "(?:instructies|aanwijzingen|opdrachten|regels|instruktioner|anvisningar|regler|instrukcje|instrukcji|"
+                        + "polecenia|polecen|zasady|instruksi|perintah|aturan|petunjuk|huong dan|chi dan|chi thi|lenh|quy tac|"
+                        + "tagubilin|utos|panuto|alituntunin|prompts?)\\b", 0.72, 0.8));
+        r.add(InjectionRule.unicode("override.tr", INSTRUCTION_OVERRIDE,
+                "(?:onceki|tum|butun|yukar\\w*)[^.!?\\n]{0,25}?(?:talimat|komut|kural|yonerge|yonlendirme)\\w*[^.!?\\n]{0,25}?"
+                        + "(?:yok say|gormezden gel|unut|dikkate alma|uymayi birak)", 0.72, 0.8));
+        r.add(InjectionRule.unicode("override.ar-fa-hi-th", INSTRUCTION_OVERRIDE,
+                "(?:تجاهل|انس|اهمل)[^.!؟\\n]{0,30}?(?:التعليمات|الاوامر|التوجيهات|القواعد|تعليمات|اوامر)|"
+                        + "(?:دستور|دستورالعمل|قوانین|قواعد|راهنمایی)[^.!؟\\n]{0,30}?(?:نادیده بگیر|فراموش کن|نادیده گرفته)|"
+                        + "(?:निरदश|आदश|नियम)[^।\\n]{0,20}?(?:अनदखा|भल जा|नजरअदाज|उपकषा)|"
+                        + "(?:ละเวน|เพกเฉย|ไมสนใจ)[^\\n]{0,15}?(?:คาสง|คาแนะนา|กฎ)", 0.72, 0.8));
 
         // ------------------------------------------------------------ role and template spoofing
         r.add(InjectionRule.of("role.chat-template-token", ROLE_SPOOFING,
@@ -262,9 +350,14 @@ final class BuiltInRules {
                 "(?:^|\\s)(?:human|user|usuario)\\s*:\\s.{1,400}?\\s(?:assistant|ai|asistente|gpt|claude)\\s*:\\s"
                         + ".{1,400}?\\s(?:human|user|usuario)\\s*:\\s", 0.3, 0.2));
         r.add(InjectionRule.of("role.end-of-data", ROLE_SPOOFING,
-                "\\b(?:end of (?:the )?(?:document|email|e-mail|context|input|data|text|user input|file|content|"
-                        + "untrusted (?:data|content)|search results?|tool output)|fin del (?:documento|correo|texto|contexto))\\b",
-                0.25, 0.35));
+                "\\b(?:end of (?:the )?(?:(?:retrieved|fetched|scraped|quoted|untrusted|external|search|tool) )?(?:document|"
+                        + "email|e-mail|context|input|data|text|user input|file|content|search results?|tool output|results?|"
+                        + "output)|(?:retrieved|fetched|quoted|external|untrusted) (?:text|content|data|document) (?:ends|ended|"
+                        + "is over)|fin del (?:documento|correo|texto|contexto|contenido))\\b", 0.25, 0.35));
+        r.add(InjectionRule.of("role.authority-note", ROLE_SPOOFING,
+                "\\b(?:additional|higher[- ]priority|high[- ]priority|top[- ]priority|urgent|new|important|override|"
+                        + "mandatory|official)\\W+(?:operator|system|platform|admin|administrator|developer|vendor|security)\\W+"
+                        + "(?:directive|instruction|note|message|notice|override|policy|command|order)s?\\b", 0.35, 0.45));
         r.add(InjectionRule.of("role.closing-delimiter", ROLE_SPOOFING,
                 "</\\s*(?:system|instructions?|user_query|user_input|user|context|document|data|tool_output|"
                         + "function_results?|search_results?|untrusted[_-]?\\w*|email|input)\\s*>", 0.25, 0.3));
@@ -305,6 +398,16 @@ final class BuiltInRules {
                         + "everything (?:above|before)|(?:the )?(?:text|words|lines|content) above|prompt above|"
                         + "instructions above|configuration prompt|instructions you (?:were|have been) given|"
                         + "context window|confidential instructions)\\b", 0.68, 0.7));
+        r.add(InjectionRule.of("leak.en-paraphrase", PROMPT_LEAK,
+                "\\b(?:text|words|paragraph|content|message|lines|instructions?|rules|prompt)\\W+(?:that\\W+|which\\W+)?"
+                        + "(?:appears?|sits?|comes?|came|is|was|are|were)\\W+(?:written\\W+|placed\\W+)?(?:before|above|prior to|"
+                        + "ahead of)\\W+(?:my|this|the|our)\\W+(?:very\\W+)?(?:first\\W+)?(?:message|question|turn|conversation|"
+                        + "chat)\\b|\\b(?:defines?|governs?|dictates?|determines?|controls?|shapes?|configures?)\\W+how\\W+"
+                        + "you\\W+(?:should\\W+|must\\W+|are supposed to\\W+)?(?:behave|act|respond|answer|operate)\\b",
+                0.45, 0.45));
+        r.add(InjectionRule.of("leak.verbatim", PROMPT_LEAK,
+                "\\b(?:word for word|verbatim|literally|character for character|palabra por palabra|literalmente)\\b",
+                0.15, 0.15));
         r.add(InjectionRule.of("leak.en-question", PROMPT_LEAK,
                 "\\bwhat\\W+(?:is|was|are|were)\\W+(?:your|the)\\W+(?:exact\\W+)?(?:system prompt|initial (?:prompt|"
                         + "instructions)|original instructions|first instructions|hidden instructions|instructions you were given)\\b",
@@ -389,8 +492,25 @@ final class BuiltInRules {
                         + "who reads|which reads)\\b" + gap(3) + "(?:this|these|the following|my)\\b", 0.3, 0.7));
         r.add(InjectionRule.of("addressed.if-you-are-ai", AI_ADDRESSED,
                 "\\bif\\W+you\\W+(?:are|'re)\\W+(?:an?\\W+)?(?:ai|a\\.i\\.|llm|assistant|language model|chatbot|bot|"
-                        + "agent|automated|gpt|claude|gemini|copilot|model)\\b|\\b(?:hey|hi|hello|dear|attention|ok|okay)\\W+"
-                        + "(?:ai|assistant|llm|chatgpt|claude|gemini|copilot|bot|agent|model)\\b\\W*[,:!]", 0.35, 0.65));
+                        + "agent|automated|gpt|claude|gemini|copilot|model)\\b", 0.35, 0.65));
+        r.add(InjectionRule.of("addressed.greeting", AI_ADDRESSED,
+                "\\b(?:hey|hi|hello|dear|attention|ok|okay)\\W+(?:ai|assistant|llm|chatgpt|claude|gemini|copilot|bot|agent|"
+                        + "model)\\b\\W*[,:!]", 0.15, 0.4));
+        r.add(InjectionRule.of("addressed.generator", AI_ADDRESSED,
+                "\\b(?:whoever|whatever|anyone|anything|any\\W+(?:automated\\W+|ai\\W+)?(?:reader|system|program|tool|process|"
+                        + "model|bot|agent|assistant|summari[sz]er)|the\\W+(?:system|program|tool|process|model|bot|agent|assistant|"
+                        + "reader|software|summari[sz]er))\\W+(?:\\w+\\W+){0,3}?(?:generating|building|writing|producing|compiling|"
+                        + "creating|composing|drafting|preparing|summari[sz]ing)\\W+(?:\\w+\\W+){0,3}?(?:summary|reply|response|"
+                        + "answer|output|digest|report|it)\\b|\\b(?:to|for)\\W+the\\W+(?:program|system|tool|process|software|"
+                        + "model|agent)\\W+(?:that\\W+is\\W+|which\\W+is\\W+)?(?:building|writing|producing|generating|composing)"
+                        + "\\W+(?:a\\W+|the\\W+)?(?:reply|response|answer|summary|output)\\b", 0.3, 0.6));
+        r.add(InjectionRule.of("addressed.reader-vocative", AI_ADDRESSED,
+                "\\b(?:reader|readers|recipient|processor|parser)\\W+of\\W+this\\W+(?:file|page|document|email|e-mail|message|"
+                        + "text|record|site|thread)\\s*[:,]", 0.15, 0.4));
+        r.add(InjectionRule.unicode("addressed.multilingual", AI_ADDRESSED,
+                "(?<![a-z0-9])ai\\s*(?:へ|に告く|에게)|人工知能(?:へ|に)|인공지능에게|ai에게|هوش مصنوعی که|به هوش مصنوعی|yapay zekaya|"
+                        + "الى الذكاء الاصطناعي|إلى الذكاء الاصطناعي|ai क लिए|एआई क लिए|ユーサー(?:に|には|へ)[^。\\n]{0,8}?"
+                        + "(?:知らせ|伝え|言わ|教え)(?:ない|るな)|사용자에게[^.\\n]{0,10}?(?:알리지|말하지)", 0.3, 0.55));
         r.add(InjectionRule.of("addressed.vocative", AI_ADDRESSED,
                 "(?:^|[.!?\\n>]\\s*|\\(\\s*|\\[\\s*)(?:dear\\W+|querido\\W+|estimado\\W+)?(?:ai|a\\.i\\.|assistant|ai assistant|"
                         + "chatbot|bot|agent|ai agent|model|llm|chatgpt|claude|gemini|copilot|asistente|ia|agente|modelo)\\s*,",
@@ -446,13 +566,21 @@ final class BuiltInRules {
 
         // ------------------------------------------------------------ exfiltration
         r.add(InjectionRule.of("exfil.send-secrets", EXFILTRATION,
-                "\\b(?:send|forward|post|upload|transmit|exfiltrate|leak|e-?mail|copy|append|include|encode|embed|attach|"
-                        + "submit|share|paste|write|put|insert|add|move|sync|push|report|log|deliver|relay|redirect|output)"
+"\\b(?:send(?:s|ing)?|sent|forward(?:s|ed|ing)?|post(?:s|ed|ing)?|upload(?:s|ed|ing)?|transmit(?:s|ted|ting)?|"
+                        + "exfiltrat(?:e|es|ed|ing)|leak(?:s|ed|ing)?|e-?mail(?:s|ed|ing)?|cop(?:y|ies|ied|ying)|append(?:s|ed|ing)?|"
+                        + "includ(?:e|es|ed|ing)|encod(?:e|es|ed|ing)|embed(?:s|ded|ding)?|attach(?:es|ed|ing)?|submit(?:s|ted|ting)?|"
+                        + "shar(?:e|es|ed|ing)|past(?:e|es|ed|ing)|relay(?:s|ed|ing)?|redirect(?:s|ed|ing)?|push(?:es|ed|ing)?|"
+                        + "deliver(?:s|ed|ing)?|mail(?:s|ed|ing)?|dump(?:s|ed|ing)?|tuck(?:s|ed|ing)?|write|writes|wrote|put|puts|insert(?:s|ed)?|"
+                        + "add(?:s|ed)?|move(?:s|d)?|sync(?:s|ed)?|report(?:s|ed)?|log(?:s|ged)?|output(?:s|ting)?)"
                         + "\\b" + gap(6) + EN_SECRET + "\\b" + gap(8) + "(?:to|into|in|at|via|using|through)\\b" + gap(4)
                         + DESTINATION, 0.6, 0.75));
         r.add(InjectionRule.of("exfil.send-data", EXFILTRATION,
-                "\\b(?:send|forward|post|upload|transmit|exfiltrate|leak|e-?mail|copy|append|include|encode|embed|attach|"
-                        + "submit|share|paste|push|deliver|relay|redirect)\\b" + gap(6) + EN_WEAK_SECRET + "\\b" + gap(8)
+"\\b(?:send(?:s|ing)?|sent|forward(?:s|ed|ing)?|post(?:s|ed|ing)?|upload(?:s|ed|ing)?|transmit(?:s|ted|ting)?|"
+                        + "exfiltrat(?:e|es|ed|ing)|leak(?:s|ed|ing)?|e-?mail(?:s|ed|ing)?|cop(?:y|ies|ied|ying)|append(?:s|ed|ing)?|"
+                        + "includ(?:e|es|ed|ing)|encod(?:e|es|ed|ing)|embed(?:s|ded|ding)?|attach(?:es|ed|ing)?|submit(?:s|ted|ting)?|"
+                        + "shar(?:e|es|ed|ing)|past(?:e|es|ed|ing)|relay(?:s|ed|ing)?|redirect(?:s|ed|ing)?|push(?:es|ed|ing)?|"
+                        + "deliver(?:s|ed|ing)?|mail(?:s|ed|ing)?|dump(?:s|ed|ing)?|tuck(?:s|ed|ing)?)"
+                        + "\\b" + gap(6) + EN_WEAK_SECRET + "\\b" + gap(8)
                         + "(?:to|into|in|at|via|using|through)\\b" + gap(4) + DESTINATION, 0.25, 0.4));
         r.add(InjectionRule.of("exfil.send-secrets-es", EXFILTRATION,
                 "\\b(?:envia|enviar|envie|manda|mandar|mande|reenvia|reenviar|reenvie|sube|subir|suba|comparte|compartir|"
@@ -502,6 +630,13 @@ final class BuiltInRules {
                         + "function|plugin|action|api|command|herramienta|funcion|comando)\\b"
                         + "|\\b(?:call|invoke|run|execute|llama a|invoca|ejecuta)\\W+[`'\"]?[a-z]+_[a-z0-9_]+[`'\"]?\\s*\\(",
                 0.05, 0.3));
+        r.add(InjectionRule.of("tool.poisoning-prose", TOOL_HIJACK,
+                "\\b(?:read|reads|open|opens|fetch|fetches|load|loads|access|accesses|retrieve|retrieves|collect|collects|grab|"
+                        + "grabs|copy|copies|scan|scans)\\b\\W+(?:\\w+\\W+){0,3}?(?:the user'?s?|users'?|their|the local|local)\\W+"
+                        + "(?:\\w+\\W+){0,2}?(?:notes?|files?|documents?|emails?|messages?|history|credentials?|tokens?|keys?|"
+                        + "contacts|config(?:uration)?|secrets?|password\\w*|wallet)\\b" + gap(8) + "(?:pass|passes|put|puts|tuck|"
+                        + "tucks|include|includes|add|adds|send|sends|attach|attaches|insert|inserts|place|places|embed|embeds)\\b"
+                        + gap(6) + "(?:argument|parameter|param|field|context|request|payload|notes|sidenote)\\b", 0.25, 0.5));
         r.add(InjectionRule.of("tool.urgent-action", TOOL_HIJACK,
                 "\\b(?:immediately|right now|right away|without delay|before (?:responding|answering|replying|doing "
                         + "anything else|continuing|summari[sz]ing)|as (?:your|the) first (?:step|action)|first of all|"
