@@ -25,7 +25,7 @@ Guard's PromptInjection) could not be evaluated: huggingface.co is not reachable
 environment this was written in. Their published numbers are quoted in the report instead.
 
 Usage:
-  python3 compare_oss.py <corpus-dir> <clones-dir> [--limit-long N]
+  python3 compare_oss.py <corpus-dir> <clones-dir> [--skip name,name]
 """
 import importlib.util
 import json
@@ -115,6 +115,7 @@ def pct(x):
 
 def main():
     corpus_dir, clones = sys.argv[1], sys.argv[2]
+    skip = set(sys.argv[sys.argv.index("--skip") + 1].split(",")) if "--skip" in sys.argv else set()
     corpus = load_jsonl(os.path.join(corpus_dir, "corpus.jsonl"))
     java = {p["id"]: p for p in load_jsonl(os.path.join(corpus_dir, "predictions.jsonl"))}
     results = {"prompt-shield (this PR, default)": [
@@ -126,6 +127,8 @@ def main():
         dict(dataset="rebuff-sample", label=s["label"], flag=java[s["id"]]["flagged"], ms=java[s["id"]]["micros"] / 1000)
         for s in sample]
     for name, factory in DETECTORS.items():
+        if name in skip:
+            continue
         try:
             detect = factory(clones)
         except Exception as e:  # missing clone or dependency
