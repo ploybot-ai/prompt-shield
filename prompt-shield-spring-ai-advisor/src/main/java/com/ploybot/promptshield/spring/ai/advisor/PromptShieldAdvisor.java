@@ -89,14 +89,27 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
      * @param scanSystemMessages  also scan the application's system prompt
      * @param scanToolDefinitions scan tool descriptions and input schemas (tool poisoning);
      *                            {@code QUARANTINE} acts as {@code BLOCK} for them
+     * @param restoreToolArgumentsFor tools whose call arguments are restored; empty for all.
+     *                            Independent of detection: other tools always receive placeholders
      */
     public record InjectionOptions(InjectionGuard guard, boolean protectOnInjection, boolean scanSystemMessages,
-                                   boolean scanToolDefinitions) {
+                                   boolean scanToolDefinitions, java.util.Set<String> restoreToolArgumentsFor) {
 
         public InjectionOptions {
             if (guard == null) {
                 throw new IllegalArgumentException("guard must not be null");
             }
+            restoreToolArgumentsFor = restoreToolArgumentsFor == null ? java.util.Set.of()
+                    : java.util.Set.copyOf(restoreToolArgumentsFor);
+        }
+
+        public InjectionOptions(InjectionGuard guard, boolean protectOnInjection, boolean scanSystemMessages,
+                                boolean scanToolDefinitions) {
+            this(guard, protectOnInjection, scanSystemMessages, scanToolDefinitions, java.util.Set.of());
+        }
+
+        boolean restoresArgumentsOf(String toolName) {
+            return restoreToolArgumentsFor.isEmpty() || toolName != null && restoreToolArgumentsFor.contains(toolName);
         }
 
         public static InjectionOptions of(InjectionGuard guard) {
@@ -243,6 +256,10 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
                     ? responseFlux.doFinally(signal -> releaseIfEphemeral(resolved))
                     : responseFlux;
         });
+    }
+
+    private boolean restoresArgumentsOf(String toolName) {
+        return injection == null || injection.restoresArgumentsOf(toolName);
     }
 
     private InjectionGuard.Inspection newInspection() {
@@ -529,8 +546,8 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
         String restoredText = hasTagsInText ? safeRestore(text, scope, protect) : text;
         List<AssistantMessage.ToolCall> restoredToolCalls = output.getToolCalls().stream()
-                .map(tc -> protect ? tc : new AssistantMessage.ToolCall(tc.id(), tc.type(), tc.name(),
-                        safeRestore(tc.arguments(), scope, false)))
+                .map(tc -> protect || !restoresArgumentsOf(tc.name()) ? tc
+                        : new AssistantMessage.ToolCall(tc.id(), tc.type(), tc.name(), safeRestore(tc.arguments(), scope, false)))
                 .toList();
 
         AssistantMessage restoredOutput = AssistantMessage.builder()
@@ -564,8 +581,8 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
 
         String emittableText = hasText ? restorer.process(text) : text;
         List<AssistantMessage.ToolCall> restoredToolCalls = output.getToolCalls().stream()
-                .map(tc -> protect ? tc : new AssistantMessage.ToolCall(tc.id(), tc.type(), tc.name(),
-                        safeRestore(tc.arguments(), scope, false)))
+                .map(tc -> protect || !restoresArgumentsOf(tc.name()) ? tc
+                        : new AssistantMessage.ToolCall(tc.id(), tc.type(), tc.name(), safeRestore(tc.arguments(), scope, false)))
                 .toList();
 
         AssistantMessage restoredOutput = AssistantMessage.builder()

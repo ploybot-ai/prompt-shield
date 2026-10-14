@@ -56,7 +56,8 @@ public class PromptShieldAdvisorAutoConfiguration {
                         injectionProps.toGuard(engine.getTagPattern()),
                         injectionProps.isProtectOnInjection(),
                         injectionProps.isScanSystemMessages(),
-                        injectionProps.isScanToolDefinitions())
+                        injectionProps.isScanToolDefinitions(),
+                        new java.util.HashSet<>(injectionProps.getRestoreToolArgumentsFor()))
                 : null;
         return new PromptShieldAdvisor(
                 engine,

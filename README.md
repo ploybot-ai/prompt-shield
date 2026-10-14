@@ -456,6 +456,7 @@ prompt-shield:
     scan-system-messages: false
     deobfuscation: true
     disabled-rules: []        # e.g. [role.developer-mode] to silence a source of false positives
+    restore-tool-arguments-for: []   # e.g. [send_invoice, create_customer]; empty = every tool
 ```
 
 | Action | Effect |
@@ -471,6 +472,13 @@ would therefore exfiltrate the real address. When a tool result is flagged but l
 through (`monitor`), the response keeps placeholders in tool call arguments and inside
 URLs, so the attacker only gets an opaque tag. On a false positive, a legitimate tool
 call in that turn receives placeholders instead of data.
+
+**`restore-tool-arguments-for`.** Detection will miss some injections (a paraphrase, an
+instruction disguised as a routine business request). This setting does not depend on
+detection: only the listed tools get the original values in their arguments, every
+other tool (`http_get`, `post_comment`, `search`...) receives placeholders. It is the
+recommended setting for agents that combine personal data, untrusted content and tools
+that can reach the outside world.
 
 ### Standalone use
 

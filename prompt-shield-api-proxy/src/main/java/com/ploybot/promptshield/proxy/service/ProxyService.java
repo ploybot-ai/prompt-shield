@@ -46,6 +46,7 @@ public class ProxyService {
     private final boolean restoreOnResponse;
     private final InjectionGuard injectionGuard;
     private final boolean protectOnInjection;
+    private final java.util.Set<String> restoreToolArgumentsFor;
 
     public ProxyService(AiProviderClient aiClient, ObfuscationEngine engine,
                         boolean injectSystemPrompt, boolean restoreOnResponse) {
@@ -59,6 +60,17 @@ public class ProxyService {
      */
     public ProxyService(AiProviderClient aiClient, ObfuscationEngine engine, boolean injectSystemPrompt,
                         boolean restoreOnResponse, InjectionGuard injectionGuard, boolean protectOnInjection) {
+        this(aiClient, engine, injectSystemPrompt, restoreOnResponse, injectionGuard, protectOnInjection, java.util.Set.of());
+    }
+
+    /**
+     * @param restoreToolArgumentsFor tools whose call arguments are restored; empty for all
+     */
+    public ProxyService(AiProviderClient aiClient, ObfuscationEngine engine, boolean injectSystemPrompt,
+                        boolean restoreOnResponse, InjectionGuard injectionGuard, boolean protectOnInjection,
+                        java.util.Set<String> restoreToolArgumentsFor) {
+        this.restoreToolArgumentsFor = restoreToolArgumentsFor == null ? java.util.Set.of()
+                : java.util.Set.copyOf(restoreToolArgumentsFor);
         this.aiClient = aiClient;
         this.engine = engine;
         this.injectSystemPrompt = injectSystemPrompt;
@@ -237,6 +249,24 @@ public class ProxyService {
         }
     }
 
+    private boolean restoresArgumentsOf(String toolName) {
+        return restoreToolArgumentsFor.isEmpty() || toolName != null && restoreToolArgumentsFor.contains(toolName);
+    }
+
+    /** Restores the arguments of the tool calls whose tool is allowed to receive the original values. */
+    private void restoreToolCallArguments(ObjectNode message, ObfuscationScope scope) {
+        if (message.get("tool_calls") instanceof ArrayNode calls) {
+            for (JsonNode call : calls) {
+                if (restoresArgumentsOf(call.path("function").path("name").asText())) {
+                    transformArguments(call.get("function"), scope::restore);
+                }
+            }
+        }
+        if (restoresArgumentsOf(message.path("function_call").path("name").asText())) {
+            transformArguments(message.get("function_call"), scope::restore);
+        }
+    }
+
     private static void transformToolCallArguments(ObjectNode message, UnaryOperator<String> transform) {
         JsonNode toolCalls = message.get("tool_calls");
         if (toolCalls instanceof ArrayNode calls) {
@@ -275,7 +305,7 @@ public class ProxyService {
             if (choice.get("message") instanceof ObjectNode message) {
                 transformContent(message, protect ? scope::restoreOutsideUrls : scope::restore);
                 if (!protect) {
-                    transformToolCallArguments(message, scope::restore);
+                    restoreToolCallArguments(message, scope);
                 }
             }
         }
@@ -307,9 +337,14 @@ public class ProxyService {
             }
             if (delta != null && delta.get("tool_calls") instanceof ArrayNode calls) {
                 for (JsonNode call : calls) {
-                    if (!state.protect && call.get("function") instanceof ObjectNode function
+                    int callIndex = call.path("index").asInt(0);
+                    String name = call.path("function").path("name").asText(null);
+                    if (name != null) {
+                        state.toolNames.put(choiceIndex + ":" + callIndex, name);
+                    }
+                    if (!state.protect && restoresArgumentsOf(state.toolNames.get(choiceIndex + ":" + callIndex))
+                            && call.get("function") instanceof ObjectNode function
                             && function.path("arguments").isTextual()) {
-                        int callIndex = call.path("index").asInt(0);
                         function.put("arguments", state.restorer(choiceIndex, callIndex)
                                 .process(function.get("arguments").asText()));
                     }
@@ -336,6 +371,8 @@ public class ProxyService {
         private final ObfuscationScope scope;
         private final boolean protect;
         private final Map<String, StreamingRestorer> restorers = new LinkedHashMap<>();
+        /** Tool names per choice and call index: only the first delta of a call carries it. */
+        private final Map<String, String> toolNames = new LinkedHashMap<>();
         private ObjectNode lastChunk;
 
         StreamState(ObfuscationScope scope, boolean protect) {

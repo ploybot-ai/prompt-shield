@@ -224,6 +224,22 @@ public class PromptShieldProperties {
         private boolean scanToolDefinitions = true;
         /** Rule ids to disable, e.g. to silence a source of false positives. */
         private List<String> disabledRules = new ArrayList<>();
+        /**
+         * Tools whose call arguments get the original values restored. Empty (default)
+         * means every tool. Listing only the tools that need personal data (send_invoice,
+         * create_customer...) keeps placeholders in the arguments of every other tool
+         * (http_get, post_comment...), so an injection that detection misses still cannot
+         * route the data through them.
+         */
+        private List<String> restoreToolArgumentsFor = new ArrayList<>();
+
+        public List<String> getRestoreToolArgumentsFor() {
+            return restoreToolArgumentsFor;
+        }
+
+        public void setRestoreToolArgumentsFor(List<String> restoreToolArgumentsFor) {
+            this.restoreToolArgumentsFor = restoreToolArgumentsFor;
+        }
 
         /** Builds the detector, taking the placeholder format of the obfuscation engine. */
         public HeuristicInjectionDetector toDetector(Pattern placeholderPattern) {

@@ -74,7 +74,8 @@ public class ApiProxyAutoConfiguration {
                 proxyProps.isInjectSystemPrompt(),
                 proxyProps.isRestoreOnResponse(),
                 injectionProps.isEnabled() ? injectionProps.toGuard(engine.getTagPattern()) : null,
-                injectionProps.isProtectOnInjection()
+                injectionProps.isProtectOnInjection(),
+                new java.util.HashSet<>(injectionProps.getRestoreToolArgumentsFor())
         );
     }
 

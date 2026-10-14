@@ -131,6 +131,20 @@ class ProxyInjectionTest {
     }
 
     @Test
+    void onlyAllowedToolsReceiveRestoredArguments() throws Exception {
+        echoTagProvider();
+        InjectionGuard guard = new InjectionGuard(new HeuristicInjectionDetector(), InjectionAction.MONITOR, InjectionAction.MONITOR);
+        ProxyService allowlisted = new ProxyService(aiClient, engine, false, true, guard, true, java.util.Set.of("create_customer"));
+
+        ProviderResponse response = allowlisted.chatCompletion(toolConversation("{\"temp\":17}"), null);
+
+        JsonNode message = MAPPER.readTree(response.body()).path("choices").get(0).path("message");
+        // send_email is not in the list: the placeholder stays even though nothing was flagged
+        assertTrue(EMAIL_TAG.matcher(message.path("tool_calls").get(0).path("function").path("arguments").asText()).find());
+        assertTrue(message.path("content").asText().startsWith("Hi juan@example.com"));
+    }
+
+    @Test
     void poisonedToolDefinitionIsRejectedWithAnOpenAiStyleError() throws Exception {
         ProxyService service = service(InjectionAction.MONITOR, InjectionAction.QUARANTINE);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new ProxyController(service,

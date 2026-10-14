@@ -194,6 +194,13 @@ curl -X POST http://localhost:8080/v1/chat/completions \
   }'
 ```
 
+## Prompt injection
+
+User messages, `tool`/`function` messages and the `tools` definitions of each request are
+scanned before obfuscation (see the main README, "Prompt Injection Detection"). Warnings
+name the rules that fired, never the text. Detection is a heuristic layer, not a
+guarantee: keep confirmation for sensitive tool calls on the client side.
+
 ## Access control
 
 | Configuration | Who can use the proxy | Key sent to the provider |
@@ -242,6 +249,10 @@ prompt-shield:
 | `PROMPT_SHIELD_PROXY_INJECT_SYSTEM_PROMPT` | Inject obfuscation instructions | `true` |
 | `PROMPT_SHIELD_PROXY_RESTORE_ON_RESPONSE` | Restore values in response | `true` |
 | `PROMPT_SHIELD_SERVICE_KEYS_ENABLED` | Enable service key detection | `true` |
+| `PROMPT_SHIELD_INJECTION_ENABLED` | Scan user messages, tool messages and `tools` definitions for prompt injection | `true` |
+| `PROMPT_SHIELD_INJECTION_USER_ACTION` | `monitor` or `block` (answers `400`, code `prompt_injection_detected`) | `monitor` |
+| `PROMPT_SHIELD_INJECTION_TOOL_ACTION` | `monitor`, `block` or `quarantine` (tool message replaced by a notice) | `monitor` |
+| `PROMPT_SHIELD_INJECTION_PROTECT_ON_INJECTION` | After a flagged tool message, keep placeholders in tool calls and URLs of the response | `true` |
 | `SERVER_PORT` | Server port | `8080` |
 
 ## Docker Compose Examples
