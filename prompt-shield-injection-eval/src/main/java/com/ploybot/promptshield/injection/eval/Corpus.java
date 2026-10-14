@@ -24,7 +24,8 @@ import java.util.Locale;
  *       Unicode tricks, encodings, documents and MCP tool results.</li>
  *   <li>{@code bipia-train}: BIPIA's train split, used to tune the indirect rules.</li>
  *   <li>{@code review-r1-tune} / {@code review-r1-holdout}: adaptive cases by the
- *       independent reviewer (see {@link #REVIEW}).</li>
+ *       independent reviewer (see {@link #REVIEW}); {@code review-r3-benign}: business
+ *       texts from the third review, which found the false positives fixed in v4.</li>
  *   <li>External, held-out sets (scripts/import_external.py), never used to tune
  *       rules: {@code bipia}, {@code llm-guard-tests}, {@code prompt-shield-ai-sample},
  *       {@code pint-example}.</li>
@@ -42,7 +43,7 @@ public final class Corpus {
      * hard negatives); every attack bypassed v1. The tune half was read to write v2; the
      * holdout half was only measured.
      */
-    public static final List<String> REVIEW = List.of("review-r1-tune", "review-r1-holdout");
+    public static final List<String> REVIEW = List.of("review-r1-tune", "review-r1-holdout", "review-r3-benign");
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String ROOT = "/injection-corpus/";

@@ -116,7 +116,7 @@ public class ProxyService {
         boolean protect = inspect(parsed);
         return Flux.defer(() -> {
             ObfuscationScope scope = newRequestScope();
-            ObjectNode request = obfuscateRequest(parsed, scope);
+            ObjectNode request = obfuscateRequest(parsed.deepCopy(), scope);
             Flux<String> upstream = aiClient.chatCompletionStream(write(request), authorization);
             if (!restoreOnResponse) {
                 return upstream.doFinally(signal -> scope.removeCreatedMappings());
@@ -157,8 +157,21 @@ public class ProxyService {
                 }
             }
         }
-        for (JsonNode node : (ArrayNode) request.get("messages")) {
-            if (!(node instanceof ObjectNode message)) {
+        // Clients resend the whole conversation: only the last user message and the tool
+        // messages after the last assistant message are new (see InjectionGuard)
+        ArrayNode messages = (ArrayNode) request.get("messages");
+        int lastAssistant = -1;
+        int lastUser = -1;
+        for (int i = 0; i < messages.size(); i++) {
+            String role = messages.get(i).path("role").asText();
+            if ("assistant".equals(role)) {
+                lastAssistant = i;
+            } else if ("user".equals(role)) {
+                lastUser = i;
+            }
+        }
+        for (int i = 0; i < messages.size(); i++) {
+            if (!(messages.get(i) instanceof ObjectNode message)) {
                 continue;
             }
             String role = message.path("role").asText();
@@ -168,8 +181,10 @@ public class ProxyService {
                 default -> null;
             };
             if (source != null) {
+                boolean isNew = source == ContentSource.USER ? i == lastUser && lastUser > lastAssistant : i > lastAssistant;
                 transformContent(message, text -> {
-                    InjectionGuard.Decision decision = inspection.inspect(text, source);
+                    InjectionGuard.Decision decision = isNew
+                            ? inspection.inspect(text, source) : inspection.inspectHistory(text, source);
                     report(decision);
                     return decision.text();
                 });
@@ -188,7 +203,10 @@ public class ProxyService {
     }
 
     private static void report(InjectionGuard.Decision decision) {
-        if (decision.flagged()) {
+        if (decision.flagged() && decision.history()) {
+            logger.debug("ProxyService: flagged content still in the conversation ({}): {}", decision.action(),
+                    decision.verdict().summary());
+        } else if (decision.flagged()) {
             logger.warn("ProxyService: possible prompt injection ({}): {}", decision.action(), decision.verdict().summary());
         }
     }
@@ -338,8 +356,8 @@ public class ProxyService {
             if (delta != null && delta.get("tool_calls") instanceof ArrayNode calls) {
                 for (JsonNode call : calls) {
                     int callIndex = call.path("index").asInt(0);
-                    String name = call.path("function").path("name").asText(null);
-                    if (name != null) {
+                    String name = call.path("function").path("name").asText("");
+                    if (!name.isBlank()) {
                         state.toolNames.put(choiceIndex + ":" + callIndex, name);
                     }
                     if (!state.protect && restoresArgumentsOf(state.toolNames.get(choiceIndex + ":" + callIndex))

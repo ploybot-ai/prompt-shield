@@ -36,7 +36,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Obfuscates sensitive data in every message sent to the model (system, user,
@@ -77,8 +76,6 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     private final boolean obfuscateSystemMessages;
     private final boolean obfuscateToolResponses;
     private final InjectionOptions injection;
-    /** Tool descriptions rarely change: their verdicts are cached. */
-    private final Map<String, InjectionVerdict> toolDefinitionVerdicts = new ConcurrentHashMap<>();
 
     /**
      * Prompt-injection detection settings.
@@ -232,7 +229,8 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
             boolean protect = isProtected(inspection);
 
             logUserMessage(obfuscatedRequest);
-            Flux<ChatClientResponse> responseFlux = streamAdvisorChain.nextStream(obfuscatedRequest)
+            // Deferred so that a chain failing synchronously still releases the scope below
+            Flux<ChatClientResponse> responseFlux = Flux.defer(() -> streamAdvisorChain.nextStream(obfuscatedRequest))
                     .doOnNext(this::logAssistantResponse);
 
             if (restoreOnResponse) {
@@ -282,19 +280,22 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         return response.mutate().context(INJECTION_VERDICTS_KEY, inspection.getFlagged()).build();
     }
 
-    /** Logs a flagged text without its content (it may hold personal data). */
+    /** Logs a flagged text without its content (it may hold personal data); history is logged at debug level. */
     private void report(InjectionGuard.Decision decision) {
-        if (decision.flagged()) {
+        if (decision.flagged() && decision.history()) {
+            logger.debug("PromptShieldAdvisor: flagged content still in the conversation ({}): {}", decision.action(),
+                    decision.verdict().summary());
+        } else if (decision.flagged()) {
             logger.warn("PromptShieldAdvisor: possible prompt injection ({}): {}", decision.action(),
                     decision.verdict().summary());
         }
     }
 
-    private String inspect(InjectionGuard.Inspection inspection, String text, ContentSource source) {
+    private String inspect(InjectionGuard.Inspection inspection, String text, ContentSource source, boolean isNew) {
         if (inspection == null || text == null) {
             return text;
         }
-        InjectionGuard.Decision decision = inspection.inspect(text, source);
+        InjectionGuard.Decision decision = isNew ? inspection.inspect(text, source) : inspection.inspectHistory(text, source);
         report(decision);
         return decision.text();
     }
@@ -313,13 +314,7 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         for (ToolCallback callback : toolOptions.getToolCallbacks()) {
             ToolDefinition definition = callback.getToolDefinition();
             String text = definition.name() + "\n" + definition.description() + "\n" + definition.inputSchema();
-            InjectionVerdict verdict = toolDefinitionVerdicts.size() < 4096
-                    ? toolDefinitionVerdicts.computeIfAbsent(text,
-                            t -> injection.guard().getDetector().analyze(t, ContentSource.TOOL_DEFINITION))
-                    : injection.guard().getDetector().analyze(text, ContentSource.TOOL_DEFINITION);
-            if (!verdict.isInjection()) {
-                continue;
-            }
+            // Verdicts are cached by the guard: definitions are the same on every request
             InjectionGuard.Decision decision = inspection.inspect(text, ContentSource.TOOL_DEFINITION);
             report(decision);
             if (decision.action() == InjectionAction.QUARANTINE) {
@@ -402,36 +397,82 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
         return singleLine.length() <= 200 ? singleLine : singleLine.substring(0, 200) + "...";
     }
 
+    /**
+     * New content of this request: the last user message when nothing answered it yet,
+     * and the tool results after the last assistant message. Everything else was already
+     * sent in an earlier turn or tool-loop iteration (see {@link InjectionGuard}).
+     */
+    private static boolean[] newMessages(List<Message> instructions) {
+        int lastAssistant = -1;
+        int lastUser = -1;
+        for (int i = 0; i < instructions.size(); i++) {
+            if (instructions.get(i) instanceof AssistantMessage) {
+                lastAssistant = i;
+            } else if (instructions.get(i) instanceof UserMessage) {
+                lastUser = i;
+            }
+        }
+        boolean[] isNew = new boolean[instructions.size()];
+        for (int i = 0; i < instructions.size(); i++) {
+            Message message = instructions.get(i);
+            isNew[i] = message instanceof UserMessage && i == lastUser && lastUser > lastAssistant
+                    || message instanceof ToolResponseMessage && i > lastAssistant
+                    || message instanceof SystemMessage;
+        }
+        return isNew;
+    }
+
+    /**
+     * Scans every message first and only then obfuscates, so a blocked request leaves no
+     * mappings behind. Detection runs on the original text, before placeholders change it.
+     */
+    private List<Message> inspectMessages(Prompt prompt, InjectionGuard.Inspection inspection) {
+        List<Message> instructions = prompt.getInstructions();
+        if (inspection == null) {
+            return instructions;
+        }
+        inspectToolDefinitions(prompt.getOptions(), inspection);
+        boolean[] isNew = newMessages(instructions);
+        List<Message> inspected = new ArrayList<>(instructions.size());
+        for (int i = 0; i < instructions.size(); i++) {
+            Message message = instructions.get(i);
+            if (message instanceof SystemMessage systemMessage && injection.scanSystemMessages()) {
+                inspect(inspection, systemMessage.getText(), ContentSource.SYSTEM, true);
+                inspected.add(message);
+            } else if (message instanceof UserMessage userMessage) {
+                String text = inspect(inspection, userMessage.getText(), ContentSource.USER, isNew[i]);
+                inspected.add(text == null || text.equals(userMessage.getText()) ? message
+                        : userMessage.mutate().text(text).build());
+            } else if (message instanceof ToolResponseMessage toolResponseMessage) {
+                inspected.add(inspectToolResponseMessage(toolResponseMessage, inspection, isNew[i]));
+            } else {
+                inspected.add(message);
+            }
+        }
+        inspection.throwIfBlocked();
+        return inspected;
+    }
+
     private ChatClientRequest obfuscateRequest(ChatClientRequest request, ObfuscationScope scope,
                                                InjectionGuard.Inspection inspection) {
         Prompt prompt = request.prompt();
         List<Message> messages = new ArrayList<>();
         String obfuscationInstructions = injectSystemPrompt ? getEffectiveSystemPrompt() : null;
 
-        // Detection runs on the original text, before placeholders change it
-        inspectToolDefinitions(prompt.getOptions(), inspection);
-        for (Message message : prompt.getInstructions()) {
+        for (Message message : inspectMessages(prompt, inspection)) {
             if (message instanceof SystemMessage systemMessage) {
-                if (injection != null && injection.scanSystemMessages()) {
-                    inspect(inspection, systemMessage.getText(), ContentSource.SYSTEM);
-                }
                 messages.add(obfuscateSystemMessage(systemMessage, scope, obfuscationInstructions));
             } else if (message instanceof UserMessage userMessage) {
-                String text = inspect(inspection, userMessage.getText(), ContentSource.USER);
                 messages.add(userMessage.mutate()
-                        .text(scope.obfuscate(text))
+                        .text(scope.obfuscate(userMessage.getText()))
                         .build());
             } else if (message instanceof AssistantMessage assistantMessage) {
                 messages.add(obfuscateAssistantMessage(assistantMessage, scope));
-            } else if (message instanceof ToolResponseMessage toolResponseMessage) {
-                ToolResponseMessage inspected = inspectToolResponseMessage(toolResponseMessage, inspection);
-                messages.add(obfuscateToolResponses ? obfuscateToolResponseMessage(inspected, scope) : inspected);
+            } else if (message instanceof ToolResponseMessage toolResponseMessage && obfuscateToolResponses) {
+                messages.add(obfuscateToolResponseMessage(toolResponseMessage, scope));
             } else {
                 messages.add(message);
             }
-        }
-        if (inspection != null) {
-            inspection.throwIfBlocked();
         }
 
         if (obfuscationInstructions != null && messages.stream().noneMatch(m -> m instanceof SystemMessage)) {
@@ -471,14 +512,15 @@ public class PromptShieldAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     /** Scans each tool result; quarantined results are replaced by a notice. */
-    private ToolResponseMessage inspectToolResponseMessage(ToolResponseMessage message, InjectionGuard.Inspection inspection) {
+    private ToolResponseMessage inspectToolResponseMessage(ToolResponseMessage message, InjectionGuard.Inspection inspection,
+                                                           boolean isNew) {
         if (inspection == null) {
             return message;
         }
         boolean changed = false;
         List<ToolResponseMessage.ToolResponse> responses = new ArrayList<>();
         for (ToolResponseMessage.ToolResponse r : message.getResponses()) {
-            String data = inspect(inspection, r.responseData(), ContentSource.TOOL_RESULT);
+            String data = inspect(inspection, r.responseData(), ContentSource.TOOL_RESULT, isNew);
             changed |= data != null && !data.equals(r.responseData());
             responses.add(new ToolResponseMessage.ToolResponse(r.id(), r.name(), data));
         }

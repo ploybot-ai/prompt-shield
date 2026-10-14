@@ -45,6 +45,40 @@ class InjectionGuardTest {
     }
 
     @Test
+    void historyNeverBlocksButKeepsUntrustedContentOut() {
+        InjectionGuard guard = new InjectionGuard(new HeuristicInjectionDetector(), InjectionAction.BLOCK, InjectionAction.BLOCK);
+        InjectionGuard.Inspection inspection = guard.newInspection();
+        InjectionGuard.Decision user = inspection.inspectHistory(ATTACK, ContentSource.USER);
+        assertEquals(InjectionAction.MONITOR, user.action());
+        assertEquals(ATTACK, user.text());
+        InjectionGuard.Decision tool = inspection.inspectHistory(ATTACK, ContentSource.TOOL_RESULT);
+        assertEquals(InjectionAction.QUARANTINE, tool.action());
+        assertTrue(tool.text().startsWith("[Prompt Shield:"));
+        inspection.throwIfBlocked();
+
+        InjectionGuard monitor = new InjectionGuard(new HeuristicInjectionDetector(), InjectionAction.MONITOR, InjectionAction.MONITOR);
+        InjectionGuard.Inspection tainted = monitor.newInspection();
+        tainted.inspectHistory(ATTACK, ContentSource.TOOL_RESULT);
+        assertTrue(tainted.isTainted(), "flagged content still in the context keeps the response protected");
+    }
+
+    @Test
+    void verdictsAreCachedByContent() {
+        int[] calls = {0};
+        InjectionDetector counting = (text, source) -> {
+            calls[0]++;
+            return new HeuristicInjectionDetector().analyze(text, source);
+        };
+        InjectionGuard guard = new InjectionGuard(counting, InjectionAction.MONITOR, InjectionAction.MONITOR);
+        for (int i = 0; i < 5; i++) {
+            guard.newInspection().inspectHistory("same tool result " + "x".repeat(100), ContentSource.TOOL_RESULT);
+        }
+        assertEquals(1, calls[0]);
+        guard.analyze("same tool result " + "x".repeat(100), ContentSource.USER);
+        assertEquals(2, calls[0], "the source is part of the key");
+    }
+
+    @Test
     void benignTextHasNoAction() {
         InjectionGuard guard = new InjectionGuard(new HeuristicInjectionDetector(), InjectionAction.BLOCK, InjectionAction.BLOCK);
         InjectionGuard.Inspection inspection = guard.newInspection();

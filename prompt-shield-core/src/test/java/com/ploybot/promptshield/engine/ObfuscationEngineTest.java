@@ -589,4 +589,36 @@ class ObfuscationEngineTest {
         org.junit.jupiter.api.Assertions.assertEquals("Mail: ~", scope.obfuscate("Mail: first.last+tag@sub.example.co.uk").substring(0, 7));
         org.junit.jupiter.api.Assertions.assertTrue(scope.obfuscate("<mailto:juan@example.com>").startsWith("<mailto:~REDACTED:EMAIL#"));
     }
+
+    @org.junit.jupiter.api.Test
+    void formatCharacterUsedAsSeparatorStillDetected() {
+        ObfuscationScope scope = new ObfuscationEngine().forScope("separators");
+        for (String input : new String[]{"Cliente:ACME\u200B12345678Z", "ref\u200B612345678", "NIF\u206012345678Z",
+                "Tel\u00AD612345678", "ju\u200Ban@example.com"}) {
+            String obfuscated = scope.obfuscate(input);
+            org.junit.jupiter.api.Assertions.assertTrue(obfuscated.contains("~REDACTED:"), input + " -> " + obfuscated);
+            org.junit.jupiter.api.Assertions.assertFalse(obfuscated.contains("5678") || obfuscated.contains("example.com"),
+                    obfuscated);
+            org.junit.jupiter.api.Assertions.assertEquals(input, scope.restore(obfuscated));
+        }
+    }
+
+    @org.junit.jupiter.api.Test
+    void customTypeEndingOnLoneSurrogateDoesNotThrow() {
+        com.ploybot.promptshield.model.ObfuscationConfig config = new com.ploybot.promptshield.model.ObfuscationConfig();
+        ObfuscationEngine custom = new ObfuscationEngine(config);
+        custom.getRegistry().register("TICKET", "TCK-[^\\s,;]+");
+        ObfuscationScope scope = custom.forScope("surrogates");
+        for (String input : new String[]{"Ver TCK-1234\uD83D", "Ver \u200BTCK-1234\uD83Dx", "Ver \u200BTCK-12\uD83D\uDE00 ok"}) {
+            String obfuscated = scope.obfuscate(input);
+            org.junit.jupiter.api.Assertions.assertEquals(input, scope.restore(obfuscated));
+        }
+    }
+
+    @org.junit.jupiter.api.Test
+    void longLocalPartsAreStillEmails() {
+        ObfuscationScope scope = new ObfuscationEngine().forScope("long-local");
+        String email = "msg-" + "a1".repeat(40) + "@mail.acme.es";
+        org.junit.jupiter.api.Assertions.assertFalse(scope.obfuscate("Reply to " + email).contains("acme.es"));
+    }
 }

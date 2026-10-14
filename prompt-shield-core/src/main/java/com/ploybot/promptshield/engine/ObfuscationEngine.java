@@ -167,24 +167,66 @@ public class ObfuscationEngine {
         if (text == null || text.isEmpty()) {
             return text;
         }
-        DetectionView view = DetectionView.of(text);
-        List<DetectedEntity> entities = registry.detect(view.text(), typeNames, tagRanges(view.text()));
-        if (entities.isEmpty()) {
+        List<int[]> spans = detectSpans(text, typeNames);
+        if (spans.isEmpty()) {
             return text;
         }
-        StringBuilder result = new StringBuilder(text.length() + entities.size() * 24);
+        StringBuilder result = new StringBuilder(text.length() + spans.size() * 24);
         int last = 0;
-        for (DetectedEntity entity : entities) {
-            int start = view.originalStart(entity.getStart());
-            int end = view.originalEnd(entity.getEnd());
+        List<String> names = new ArrayList<>(typeNames);
+        for (int[] span : spans) {
+            int start = span[0];
+            int end = span[1];
+            String type = names.get(span[2]);
             // The original span, invisible characters included, is what gets stored and restored
             String value = text.substring(start, end);
             result.append(text, last, start);
-            result.append(formatTag(entity.getType(), assignId(entity.getType(), value, scope)));
+            result.append(formatTag(type, assignId(type, value, scope)));
             last = end;
         }
         result.append(text, last, text.length());
         return result.toString();
+    }
+
+    /**
+     * Matches on the original text and, when it contains format or fullwidth characters,
+     * on the {@link DetectionView} too, as {@code [start, end, typeIndex]} in original
+     * offsets, sorted and non-overlapping. Both are needed: the view finds
+     * "1234\u200B5678Z", but removing a format character that was the only separator glues
+     * a word to the value ("ACME\u200B12345678Z" becomes one word) and only the original
+     * text finds it. Where they overlap the longer match wins.
+     */
+    private List<int[]> detectSpans(String text, Collection<String> typeNames) {
+        List<String> names = new ArrayList<>(typeNames);
+        List<int[]> candidates = new ArrayList<>();
+        for (DetectedEntity entity : registry.detect(text, typeNames, tagRanges(text))) {
+            candidates.add(new int[]{entity.getStart(), entity.getEnd(), names.indexOf(entity.getType())});
+        }
+        DetectionView view = DetectionView.of(text);
+        if (view.offsets() != null) {
+            for (DetectedEntity entity : registry.detect(view.text(), typeNames, tagRanges(view.text()))) {
+                candidates.add(new int[]{view.originalStart(entity.getStart()), view.originalEnd(entity.getEnd()),
+                        names.indexOf(entity.getType())});
+            }
+        }
+        // Longest first; on equal length the original-text match (added first) is kept
+        List<int[]> ordered = new ArrayList<>(candidates);
+        ordered.sort((a, b) -> Integer.compare(b[1] - b[0], a[1] - a[0]));
+        List<int[]> accepted = new ArrayList<>();
+        for (int[] candidate : ordered) {
+            boolean overlaps = false;
+            for (int[] taken : accepted) {
+                if (candidate[0] < taken[1] && taken[0] < candidate[1]) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if (!overlaps) {
+                accepted.add(candidate);
+            }
+        }
+        accepted.sort((a, b) -> Integer.compare(a[0], b[0]));
+        return accepted;
     }
 
     /**
@@ -245,8 +287,10 @@ public class ObfuscationEngine {
                 return 0;
             }
             int last = offsets[viewEnd - 1];
-            // Include the low surrogate when the last character is supplementary
-            return Character.isHighSurrogate(originalCharAt(last)) ? last + 2 : last + 1;
+            // Include the low surrogate when the last character is a complete supplementary one
+            boolean pair = Character.isHighSurrogate(originalCharAt(last)) && last + 1 < originalLength
+                    && Character.isLowSurrogate(originalCharAt(last + 1));
+            return pair ? last + 2 : last + 1;
         }
     }
 

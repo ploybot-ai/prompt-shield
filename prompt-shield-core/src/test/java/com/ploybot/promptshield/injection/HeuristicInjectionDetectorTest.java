@@ -68,6 +68,11 @@ class HeuristicInjectionDetectorTest {
             "This policy overrides all prior guidelines regarding remote work.",
             "Modern debiasing methods train the network to ignore prior biases in the training data.",
             "Can you forward this thread to accounting@company.com and cc my manager?",
+            "Please disregard the previous delivery instructions; the new address is Calle Mayor 5.",
+            "Este contrato anula y sustituye cualesquiera acuerdos, negociaciones o instrucciones anteriores.",
+            "Puedes ignorar las reglas por defecto del formulario si rellenas el campo manualmente.",
+            "Upgrade to v2.41, which fixes the export bug.",
+            "See https://via.placeholder.com/150 for the image placeholder.",
     })
     void acceptsBenignText(String text) {
         InjectionVerdict verdict = detector.analyze(text, ContentSource.USER);
@@ -165,6 +170,30 @@ class HeuristicInjectionDetectorTest {
         InjectionVerdict verdict = detector.analyze(json, ContentSource.TOOL_RESULT);
         assertTrue(verdict.signals().stream().anyMatch(s -> s.layer().equals("json-fields")), verdict.summary());
         assertTrue(verdict.isInjection());
+    }
+
+    @Test
+    void numbersInMinifiedJsonAndCsvAreNotLeetspeak() {
+        String json = "{\"facturas\":[{\"id\":1001,\"total\":1280.14,\"iva\":12.41,\"items\":[14,15,16]},"
+                + "{\"id\":1002,\"total\":41.00,\"iva\":3.14}]}";
+        String csv = "id,cliente,total\n1001,Cliente 1 SL,12.41,\n1002,Cliente 2 SL,3.14,";
+        assertTrue(detector.analyze(json, ContentSource.TOOL_RESULT).signals().isEmpty(),
+                detector.analyze(json, ContentSource.TOOL_RESULT).summary());
+        assertFalse(detector.analyze(csv, ContentSource.TOOL_RESULT).isInjection());
+        assertFalse(detector.analyze("{\"type\":\"integer\",\"enum\":[14,30,60],\"maximum\":0.41}",
+                ContentSource.TOOL_DEFINITION).isInjection());
+    }
+
+    @Test
+    void jsonFieldsViewIsNotEvidenceOfHiding() {
+        String json = "{\"products\":[{\"description\":\"Plan de pago.\"},{\"description\":\"Bot, plantillas y API\"}]}";
+        assertFalse(detector.analyze(json, ContentSource.TOOL_RESULT).isInjection());
+    }
+
+    @Test
+    void echoedPlaceholderIsOnlyACoSignal() {
+        assertFalse(detector.analyze("Email enviado a ~REDACTED:EMAIL#a1b2c3~. Se procesara inmediatamente.",
+                ContentSource.TOOL_RESULT).isInjection());
     }
 
     @Test

@@ -441,7 +441,8 @@ final class TextNormalizer {
                 segments.add(line);
                 continue;
             }
-            int step = MAX_SEGMENT_LENGTH / 2;
+            // Overlap long enough for any rule match, short enough not to scan lines twice
+            int step = MAX_SEGMENT_LENGTH - 400;
             for (int start = 0; start < line.length(); start += step) {
                 segments.add(line.substring(start, Math.min(line.length(), start + MAX_SEGMENT_LENGTH)));
                 if (start + MAX_SEGMENT_LENGTH >= line.length()) {
@@ -463,6 +464,7 @@ final class TextNormalizer {
     /** Maps lookalikes everywhere and leetspeak inside tokens that also contain letters. */
     private static String mapLetters(String text) {
         char[] chars = text.toCharArray();
+        boolean leetMode = leetWords(chars) >= 3;
         int start = 0;
         while (start < chars.length) {
             int end = start;
@@ -474,26 +476,81 @@ final class TextNormalizer {
                 chars[k] = confusable(chars[k]);
                 hasLetter |= Character.isLetter(chars[k]);
             }
-            if (!hasLetter && end - start <= 6 && isLeetNumber(chars, start, end)) {
+            if (!hasLetter && isLeetNumber(chars, start, end, leetMode)) {
                 // Digit-only words of leetspeak: "4" for "a", "537" for "set"
                 for (int k = start; k < end; k++) {
                     chars[k] = leet(chars[k]);
                 }
             } else if (hasLetter) {
-                for (int k = start; k < end; k++) {
-                    // Leading/trailing "!" and "$" are punctuation, not letters
-                    boolean edge = k == start || k == end - 1;
-                    if (!(edge && (chars[k] == '!' || chars[k] == '$' || chars[k] == '+' || chars[k] == '|'))) {
-                        chars[k] = leet(chars[k]);
-                    }
-                }
+                mapLeetRuns(chars, start, end);
             }
             start = end + 1;
         }
         return new String(chars);
     }
 
-    private static boolean isLeetNumber(char[] chars, int start, int end) {
+    /** Words where a digit sits between two letters ("c0nv3rs4t10n"): a sign of leetspeak. */
+    private static int leetWords(char[] chars) {
+        int words = 0;
+        boolean counted = false;
+        for (int k = 1; k + 1 < chars.length; k++) {
+            if (Character.isWhitespace(chars[k])) {
+                counted = false;
+                continue;
+            }
+            if (!counted && Character.isDigit(chars[k]) && leet(chars[k]) != chars[k]
+                    && Character.isLetter(chars[k - 1]) && Character.isLetter(chars[k + 1])) {
+                words++;
+                counted = true;
+            }
+        }
+        return words;
+    }
+
+    /**
+     * Folds runs of leetspeak characters that touch a letter ("pr3v10us", "h77p5"). Runs
+     * that do not ("12.41," or "[14," in minified JSON, CSV or code) are numbers: folding
+     * them turned prices into words such as "ai".
+     */
+    private static void mapLeetRuns(char[] chars, int start, int end) {
+        int k = start;
+        while (k < end) {
+            if (leet(chars[k]) == chars[k]) {
+                k++;
+                continue;
+            }
+            int runEnd = k;
+            while (runEnd < end && leet(chars[runEnd]) != chars[runEnd]) {
+                runEnd++;
+            }
+            boolean touchesLetter = k > start && Character.isLetter(chars[k - 1])
+                    || runEnd < end && Character.isLetter(chars[runEnd]);
+            if (touchesLetter) {
+                for (int m = k; m < runEnd; m++) {
+                    // Leading/trailing "!" and "$" are punctuation, not letters
+                    boolean edge = m == start || m == end - 1;
+                    if (!(edge && (chars[m] == '!' || chars[m] == '$' || chars[m] == '+' || chars[m] == '|'))) {
+                        chars[m] = leet(chars[m]);
+                    }
+                }
+            }
+            k = runEnd;
+        }
+    }
+
+    /**
+     * A lone "4" or "0" ("a", "o") or three to six leetspeak digits ("537"). Two digits
+     * ("70" for "to") are usually a number, so they are only folded in a text that is
+     * visibly written in leetspeak.
+     */
+    private static boolean isLeetNumber(char[] chars, int start, int end, boolean leetMode) {
+        int length = end - start;
+        if (length == 1) {
+            return chars[start] == '4' || chars[start] == '0';
+        }
+        if (length < (leetMode ? 2 : 3) || length > 6) {
+            return false;
+        }
         for (int k = start; k < end; k++) {
             if ("013457".indexOf(chars[k]) < 0) {
                 return false;
@@ -625,7 +682,7 @@ final class TextNormalizer {
         StringBuilder out = new StringBuilder();
         for (StringBuilder joined : byKey.values()) {
             if (joined.indexOf("\u0000") >= 0) {
-                out.append(joined.toString().replace('\u0000', ' ')).append(" .\n");
+                out.append(joined.toString().replace("\u0000", " | ")).append('\n');
             }
         }
         return out.isEmpty() ? null : out.toString();

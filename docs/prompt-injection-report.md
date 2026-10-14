@@ -160,7 +160,7 @@ Los payloads usan dominios `.example` (RFC 2606) y objetivos inocuos (`PWNED`, `
 
 ## 7. Resultados
 
-Cifras de la versión final (v3), generadas por `InjectionEvaluationTest`. El informe
+Cifras de la versión final (v4), generadas por `InjectionEvaluationTest`. El informe
 completo, con desglose por técnica, idioma y errores, se regenera en
 `prompt-shield-injection-eval/target/injection-eval/report.md`. Antes de este trabajo, el
 recall era 0 % en todos los conjuntos.
@@ -170,7 +170,8 @@ recall era 0 % en todos los conjuntos.
 | Conjunto | Tipo | n | Precisión | Recall | F1 | FPR |
 |---|---|---|---|---|---|---|
 | dev | ajuste | 163 | 95,9 % | 100,0 % | 97,9 % | 3,2 % |
-| dev-mutated | ajuste | 3.227 | 97,6 % | 98,6 % | 98,1 % | 5,3 % |
+| dev-mutated | ajuste | 3.307 | 97,6 % | 98,9 % | 98,3 % | 4,9 % |
+| review-r3-benign | ajuste (v4) | 40 | — | — | — | 0,0 % |
 | bipia-train | ajuste | 400 | 100,0 % | 1,0 % | 2,0 % | 0,0 % |
 | review-r1-tune | ajuste (v2) | 54 | 85,7 % | 70,6 % | 77,4 % | 20,0 % |
 | **bipia** | held-out | 400 | 80,0 % | **2,0 %** | 3,9 % | 0,5 % |
@@ -208,9 +209,9 @@ Recall en dev-mutated con desofuscación:
 
 | Origen | Recall | FPR |
 |---|---|---|
-| USER | 93,1 % | 1,7 % |
-| DOCUMENT | 68,0 % | 4,3 % |
-| TOOL_RESULT | 98,8 % | 10,4 % |
+| USER | 93,5 % | 1,7 % |
+| DOCUMENT | 68,1 % | 4,2 % |
+| TOOL_RESULT | 99,3 % | 6,5 % |
 | TOOL_DEFINITION | 98,6 % | 1,6 % |
 
 El recall de DOCUMENT está lastrado por BIPIA. El FPR de TOOL_RESULT se concentra en
@@ -221,9 +222,9 @@ búsqueda que citan ataques.
 
 | Umbral | dev+mutated recall / FPR | externos directos recall / FPR | BIPIA recall / FPR |
 |---|---|---|---|
-| 0,35 | 99,0 % / 23,8 % | 57,9 % / 0 % | 27,0 % / 0,5 % |
-| 0,50 | 98,5 % / 5,2 % | 56,6 % / 0 % | 2,0 % / 0,5 % |
-| 0,70 | 92,2 % / 4,1 % | 44,7 % / 0 % | 0 % / 0 % |
+| 0,35 | 99,1 % / 22,2 % | 57,9 % / 0 % | 27,0 % / 0,5 % |
+| 0,50 | 98,9 % / 4,8 % | 56,6 % / 0 % | 2,0 % / 0,5 % |
+| 0,70 | 92,7 % / 3,8 % | 44,7 % / 0 % | 0 % / 0 % |
 
 **Coste** (JDK 21, un hilo, host de evaluación compartido; comparar ejecuciones en la
 misma máquina):
@@ -234,8 +235,9 @@ misma máquina):
 | heurístico sin desofuscación | 255 µs | 925 µs | 1,99 ms | 18,6 KiB | — |
 | heurístico (por defecto) | 628 µs | 2,83 ms | 5,66 ms | 53,9 KiB | 478 KiB |
 
-Escalado: 1 KB → 4,8 ms; 10 KB → 68 ms; 100 KB → 0,65 s; 1 MB → 6,7 s. Es lineal, a unos
-6,7 µs/carácter sobre un texto mixto de código, JSON y prosa. El revisor midió unos
+Escalado: 1 KB → 5–6 ms; 10 KB → 68–83 ms; 100 KB → 0,65–0,9 s; 1 MB → 6,7–8,2 s, según la
+ejecución (host compartido). Es lineal, a unos 7–8 µs/carácter sobre un texto mixto de
+código, JSON y prosa. El revisor midió unos
 0,7 µs/carácter en prosa. En las 11 entradas patológicas no hay comportamiento
 superlineal (máximo: 1,5 s para 500 KB de `![x](http://a?` repetido; antes de la
 optimización era 7,3 s). Optimizaciones de la v3 sin perder ningún veredicto: 10 KB pasa
@@ -348,7 +350,22 @@ otra vía. No se intentó sortear. **Por tanto, las defensas de integración
 adversarial independiente.** Es un riesgo residual explícito.
 
 **Ronda 3 (v3, corrección, rendimiento y falsos positivos, sin material de ataque).**
-En curso al abrir la pull request; sus hallazgos se añadirán aquí y se corregirán en esta misma rama.
+Revisión de corrección, rendimiento y falsos positivos en textos de una SaaS de
+facturación. Encontró fallos que las rondas anteriores no vieron, corregidos en la v4:
+
+| # | Hallazgo | Corrección (v4) | Verificación |
+|---|---|---|---|
+| H1 (alta) | El leetspeak convertía números de JSON minificado y CSV en palabras (`12.41,` → `.ai,`), que se leían como un vocativo al modelo. Con 25 facturas, el 40 % de los resultados se marcaba. Con `protect-on-injection`, la siguiente llamada a `send_invoice_email` recibía un marcador en lugar del email | Solo se pliegan los dígitos que tocan una letra. Los números de dos cifras solo se pliegan en textos que ya muestran leetspeak | 1.200 listas de facturas: 316 FP → 0. Controles numéricos en el corpus (80 muestras, 0 FP) |
+| H2 (alta) | El historial se reescaneaba en cada turno. Con ChatMemory y `block`, un mensaje marcado (aunque fuera un FP) bloqueaba todos los turnos siguientes. Un bucle de 10 herramientas escaneaba 55 resultados | Solo el contenido nuevo puede bloquear. El historial se sigue escaneando, porque el modelo lo lee, pero un resultado de herramienta marcado se pone en cuarentena o mantiene el *taint*, y un mensaje de usuario antiguo solo se registra. Caché LRU de veredictos con clave SHA-256 | tests del guard, del advisor y del proxy |
+| H3 (alta) | FP en redacción de negocio: «disregard the previous delivery instructions», «anula y sustituye … instrucciones anteriores», «reglas por defecto» | Calificativos de negocio junto al sustantivo; *anula/sustituye/elimina…* como verbos débiles que exigen objeto propio («tus instrucciones», «los filtros de seguridad») | sin pérdida de recall en ningún conjunto |
+| M1–M3 | URLs con «placeholder» marcadas solas; la vista `json-fields` contaba como evasión; los marcadores que devuelven las propias herramientas pesaban 0,45 | `placeholder.in-url` solo con el formato real de marcador; `json-fields` como vista plana unida con « \| »; `placeholder.planted` 0,25 | tests unitarios |
+| M4 (media, regresión de privacidad) | Con la vista sin caracteres de formato, un carácter invisible como único separador (`ACME\u200B12345678Z`) dejaba de detectarse | Detección sobre el original **y** sobre la vista; gana la coincidencia más larga sin solapamiento | test con los 5 casos |
+| M5 | Coste lineal pero alto, multiplicado por el reescaneo del historial | Caché (H2), solape de 400 caracteres en líneas largas | — |
+| L1–L6 | Sustituto alto suelto en tipos personalizados (excepción); partes locales de email de más de 64 caracteres; petición compartida entre suscripciones de streaming en el proxy; nombre vacío en deltas; caché sin límite de tamaño; *mappings* tras un bloqueo o un fallo síncrono de `nextStream` | Corregidos (comprobación de límites, `[\w.+-]++@`, `deepCopy` por suscripción, nombre no vacío, caché del guard, inspección antes de ofuscar, `Flux.defer`) | tests |
+| L7 | `restoreOutsideUrls` trata `,https://a.es,<email>` como parte de la URL, y es lento con miles de marcadores | **No corregido**: falla del lado seguro (no restaura) y solo actúa con *taint* | documentado |
+
+El conjunto benigno de esta ronda (40 textos) se añadió al corpus como `review-r3-benign`
+(0 FP en la v4). Como sirvió para corregir, no es held-out.
 
 
 ## 11. Compromisos seguridad / falsos positivos
@@ -390,10 +407,10 @@ un recall medido.
 - **Modelos no evaluados.** HuggingFace no era accesible desde el entorno, así que no se
   midieron Prompt Guard 2 ni DeBERTa en este corpus. Solo se citan sus resultados en
   PINT [5].
-- **Integración.** El *taint* es por petición. Si el modelo «recuerda» la instrucción
-  inyectada en un turno posterior sin que el contenido vuelva a estar en el contexto, no
-  se activa. Con memoria de chat el resultado de la herramienta sí reaparece en el
-  historial y se vuelve a escanear.
+- **Integración.** El *taint* se activa mientras el contenido marcado siga en el contexto
+  enviado al modelo (incluido el historial). Si la aplicación resume o recorta el
+  historial y el modelo «recuerda» la instrucción sin que el contenido vuelva a enviarse,
+  no se activa.
 
 ## 13. Recomendaciones y trabajo futuro
 

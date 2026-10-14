@@ -64,6 +64,19 @@ final class BuiltInRules {
     private static final String EN_STRONG_NOUN = "(?:instructions?|prompts?|rules?|ruies|directives?|guidelines?|guidance|"
             + "system prompt|system message|programming|guardrails?|restrictions?|constraints?|policies|policy|"
             + "safety (?:settings|measures|protocols)|directions|orders|commands?|rulebook|briefing)";
+    /**
+     * Business words that make "instructions" or "rules" someone else's: "disregard the
+     * previous delivery instructions" is a customer changing an address. Placed as a
+     * lookbehind right before the noun.
+     */
+    private static final String NOT_BUSINESS_QUALIFIED = "(?<!\\b(?:delivery|shipping|shipment|payment|billing|"
+            + "invoice|invoicing|installation|assembly|washing|care|cooking|setup|return|returns|wiring|usage|operating|"
+            + "travel|filing|parking|pickup|packing|boarding|maintenance|cleaning|dosage|submission|registration|booking|"
+            + "default|house|style|formatting|grammar)\\W{1,2})";
+    /** Spanish equivalent, after the noun: "instrucciones de entrega", "reglas por defecto". */
+    private static final String ES_NOT_BUSINESS_QUALIFIED = "(?!\\W+(?:de\\W+(?:entrega|envio|pago|uso|montaje|"
+            + "instalacion|lavado|facturacion|devolucion|transferencia|reserva|registro|mantenimiento|limpieza|estilo)\\b|"
+            + "por\\W+defecto\\b))";
     private static final String EN_PRIOR = "(?:previous|prior|above|earlier|preceding|initial|original|old|existing|former|"
             + "system|developer|default|all|every|any|these|those|your|its|the|other|given|current|safety|preset|built-in|"
             + "programmed|predefined|initial)";
@@ -133,6 +146,7 @@ final class BuiltInRules {
             Map.entry("override.it", List.of("istruzion", "regole", "direttive", "indicazioni", "comandi", "prompt", "ordini", "restrizioni")),
             Map.entry("override.ca", List.of("instrucci", "regles", "indicacions", "directrius", "ordres", "prompt")),
             Map.entry("override.ru", List.of("инструкци", "правил", "указани", "команд", "промпт", "ограничени", "директив")),
+            Map.entry("override.es-weak-verb", List.of("anula", "desactiva", "elimina", "sobrescrib", "reemplaza", "sustitu", "deroga")),
             Map.entry("override.zh", List.of("無視", "指令", "指示", "说明", "规则", "提示", "设定", "命令", "限制")),
             Map.entry("role.chat-template-token", List.of("<|")),
             Map.entry("role.inst-tags", List.of("inst]", "sys>>", "_of_turn>", "[system]", "system_prompt]")),
@@ -193,7 +207,8 @@ final class BuiltInRules {
 
         // ------------------------------------------------------------ instruction override (EN)
         r.add(InjectionRule.of("override.en", INSTRUCTION_OVERRIDE,
-                "\\b" + notNegated(EN_OVERRIDE_VERB) + "\\b" + gap(5) + "(?:" + EN_PRIOR + "\\W+)?" + EN_STRONG_NOUN + "\\b",
+                "\\b" + notNegated(EN_OVERRIDE_VERB) + "\\b" + gap(5) + "(?:" + EN_PRIOR + "\\W+)?" + NOT_BUSINESS_QUALIFIED
+                        + EN_STRONG_NOUN + "\\b",
                 0.72, 0.8));
         r.add(InjectionRule.of("override.en-given", INSTRUCTION_OVERRIDE,
                 "\\b" + notNegated("(?:" + EN_OVERRIDE_VERB.substring(3, EN_OVERRIDE_VERB.length() - 1) + "|"
@@ -251,8 +266,9 @@ final class BuiltInRules {
         r.add(InjectionRule.of("override.en-from-now-on", INSTRUCTION_OVERRIDE,
                 "\\b(?:from now on|from this point(?: on| forward)?|from here (?:on|out|onwards?)|from this message on|"
                         + "going forward|henceforth|for the rest of (?:this|the|our) (?:conversation|chat|session))"
-                        + "\\W+(?:\\w+\\W+){0,2}?(?:(?:you|ai|assistant)\\W+)?(?:are|will|must|shall|should|have to|can|may|act|"
-                        + "respond|reply|answer|only|always|never|print|say|output)\\b", 0.4, 0.55));
+                        + "\\W+(?:\\w+\\W+){0,2}?(?:(?:you|ai|assistant)\\W+(?:are|will|must|shall|should|have to|can|may|act|"
+                        + "respond|reply|answer|only|always|never|print|say|output)|(?:respond|reply|answer|print|say|output))\\b",
+                0.4, 0.55));
         r.add(InjectionRule.of("override.en-stop-task", INSTRUCTION_OVERRIDE,
                 "\\b(?:stop|cease|abort|halt|pause)\\W+(?:what you are doing|your current task|the current task|"
                         + "summari[sz]ing|translating|processing|the summary|the translation)\\b", 0.35, 0.55));
@@ -273,11 +289,19 @@ final class BuiltInRules {
                         + "omite|omitir|omita|descarta|descartar|descarte|desobedece|desobedecer|anula|anular|salta(?:te)?|"
                         + "saltarte|saltate|deja de (?:seguir|lado|cumplir|obedecer)|no (?:sigas|siga|hagas caso|haga caso|"
                         + "tengas en cuenta|obedezcas|cumplas|respetes)|haz caso omiso|haga caso omiso|pasa(?:te)? por alto|"
-                        + "prescinde|desactiva|elimina|sobrescribe|reemplaza|sustituye)\\b" + gap(5)
+                        + "prescinde)\\b" + gap(5)
                         + "(?:instrucciones|instruccion|indicaciones|reglas|normas|ordenes|directrices|directivas|pautas|"
                         + "restricciones|limitaciones|politicas|prompt|prompts|consignas|programacion|filtros|"
-                        + "salvaguardas|mensajes? (?:anteriores|previos|del sistema)|lo (?:anterior|que te (?:dijeron|han dicho)))\\b",
-                0.72, 0.8));
+                        + "salvaguardas|mensajes? (?:anteriores|previos|del sistema)|lo (?:anterior|que te (?:dijeron|han dicho)))\\b"
+                        + ES_NOT_BUSINESS_QUALIFIED, 0.72, 0.8));
+        // Verbs of contracts and software ("este acuerdo anula y sustituye las instrucciones anteriores"):
+        // only with the assistant's own rules or safety controls as object
+        r.add(InjectionRule.of("override.es-weak-verb", INSTRUCTION_OVERRIDE,
+                "\\b(?:anula|anular|desactiva|desactivar|elimina|eliminar|sobrescribe|sobrescribir|reemplaza|reemplazar|"
+                        + "sustituye|sustituir|deroga)\\b\\W+(?:\\w+\\W+){0,2}?(?:(?:tus|sus|vuestras)\\W+(?:\\w+\\W+)?"
+                        + "(?:instrucciones|reglas|normas|directrices|restricciones|filtros|salvaguardas|limitaciones|prompt)|"
+                        + "(?:el|tu)\\W+prompt|(?:las\\W+)?(?:instrucciones|reglas|normas) del sistema|(?:los|las)\\W+(?:filtros|"
+                        + "salvaguardas|restricciones|protecciones|limitaciones)(?:\\W+de seguridad)?)\\b", 0.65, 0.75));
         r.add(InjectionRule.of("override.es-new", INSTRUCTION_OVERRIDE,
                 "\\b(?:nuevas|verdaderas|autenticas|actualizadas|reales|importantes|urgentes|ocultas|secretas)\\W+"
                         + "(?:instrucciones|ordenes|directrices|indicaciones)\\s*(?::|-|=|>)|\\btu\\W+(?:nueva|verdadera|"
@@ -693,8 +717,8 @@ final class BuiltInRules {
 
         // ------------------------------------------------------------ placeholder abuse (original text)
         r.add(InjectionRule.raw("placeholder.in-url", PLACEHOLDER_ABUSE,
-                "(?i)(?:https?://|www\\.)[^\\s)\"'<>]{0,300}~[A-Z][A-Z0-9_]*:[A-Z][A-Z0-9_]*[#_\\-][a-f0-9]{1,64}~"
-                        + "|(?:https?://|www\\.)[^\\s)\"'<>]{0,300}(?:redacted|placeholder|marcador)", 0.5, 0.6));
+                "(?i)(?:https?://|www\\.)[^\\s)\"'<>~]{0,300}~[A-Z][A-Z0-9_]*:[A-Z][A-Z0-9_]*[#_\\-][a-f0-9]{1,64}~",
+                0.5, 0.6));
         r.add(InjectionRule.of("placeholder.collect", PLACEHOLDER_ABUSE,
                 "\\b(?:all|every|each|any|list|collect|gather|send|include|append|todos|todas|cada|lista|recoge|envia|"
                         + "incluye)\\b" + gap(4) + "(?:redacted|obfuscated|masked|placeholder|~redacted|ofuscad\\w*|"

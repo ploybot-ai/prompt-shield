@@ -39,7 +39,8 @@ public class HeuristicInjectionDetector implements InjectionDetector {
     public static final double DEFAULT_THRESHOLD = 0.5;
 
     private static final int EXCERPT_LENGTH = 80;
-    private static final Set<String> PLAIN_LAYERS = Set.of("normalized");
+    /** Views that only reformat the text: a match there is not evidence of hiding anything. */
+    private static final Set<String> PLAIN_LAYERS = Set.of("normalized", "json-fields");
 
     private final List<InjectionRule> rules;
     private final Map<ContentSource, Double> thresholds;
@@ -86,6 +87,7 @@ public class HeuristicInjectionDetector implements InjectionDetector {
         TextNormalizer.Result normalized = TextNormalizer.normalize(text, deobfuscation);
         Map<String, InjectionSignal> signals = new LinkedHashMap<>();
         Set<String> plainMatches = new HashSet<>();
+        String lowerRaw = null;
 
         for (InjectionRule rule : rules) {
             double weight = rule.weight(effectiveSource);
@@ -93,7 +95,10 @@ public class HeuristicInjectionDetector implements InjectionDetector {
                 continue;
             }
             if (rule.raw()) {
-                if (!rule.mayMatch(text.toLowerCase(java.util.Locale.ROOT))) {
+                if (lowerRaw == null) {
+                    lowerRaw = text.toLowerCase(java.util.Locale.ROOT);
+                }
+                if (!rule.mayMatch(lowerRaw)) {
                     continue;
                 }
                 Matcher matcher = rule.pattern().matcher(text);
@@ -126,7 +131,8 @@ public class HeuristicInjectionDetector implements InjectionDetector {
         if (effectiveSource.isIndirect() && placeholderPattern != null) {
             Matcher matcher = placeholderPattern.matcher(text);
             if (matcher.find()) {
-                record(signals, new InjectionSignal("placeholder.planted", InjectionCategory.PLACEHOLDER_ABUSE, 0.45,
+                // Weak on its own: tools legitimately echo the placeholders they were given
+                record(signals, new InjectionSignal("placeholder.planted", InjectionCategory.PLACEHOLDER_ABUSE, 0.25,
                         "raw", excerpt(text, matcher)));
             }
         }

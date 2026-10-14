@@ -53,6 +53,7 @@ public final class Mutators {
         List<Sample> out = new ArrayList<>();
         List<Sample> benignDocuments = seeds.stream()
                 .filter(s -> !s.attack() && s.source() == ContentSource.DOCUMENT).toList();
+        out.addAll(numericControls(new Random(seed)));
         for (Sample s : seeds) {
             Random random = new Random(seed ^ s.id().hashCode());
             if (s.attack()) {
@@ -350,6 +351,31 @@ public final class Mutators {
     }
 
     // ------------------------------------------------------------------ benign transforms
+
+    /**
+     * Invoice lists as minified JSON and CSV: digits next to punctuation ("12.41,") once
+     * read as leetspeak for "ai", flagging a quarter of them.
+     */
+    static List<Sample> numericControls(Random random) {
+        List<Sample> out = new ArrayList<>();
+        for (int i = 0; i < 40; i++) {
+            int records = 1 + random.nextInt(25);
+            ArrayNode invoices = MAPPER.createArrayNode();
+            StringBuilder csv = new StringBuilder("id,cliente,total,iva\n");
+            for (int k = 0; k < records; k++) {
+                double total = Math.round(random.nextDouble() * 500000) / 100.0;
+                double vat = Math.round(total * 21) / 100.0;
+                invoices.addObject().put("id", 1000 + k).put("cliente", "Cliente " + k + " SL").put("total", total)
+                        .put("iva", vat).put("moneda", "EUR");
+                csv.append(1000 + k).append(",Cliente ").append(k).append(" SL,").append(total).append(',').append(vat).append('\n');
+            }
+            out.add(new Sample("num-json-" + i, false, ContentSource.TOOL_RESULT, Corpus.DEV_MUTATED, "numbers",
+                    "numeric-json", "es", write(MAPPER.createObjectNode().set("facturas", invoices))));
+            out.add(new Sample("num-csv-" + i, false, ContentSource.TOOL_RESULT, Corpus.DEV_MUTATED, "numbers",
+                    "numeric-csv", "es", csv.toString()));
+        }
+        return out;
+    }
 
     static Map<String, UnaryOperator<String>> benignTransforms() {
         Map<String, UnaryOperator<String>> m = new LinkedHashMap<>();
