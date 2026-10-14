@@ -167,19 +167,87 @@ public class ObfuscationEngine {
         if (text == null || text.isEmpty()) {
             return text;
         }
-        List<DetectedEntity> entities = registry.detect(text, typeNames, tagRanges(text));
+        DetectionView view = DetectionView.of(text);
+        List<DetectedEntity> entities = registry.detect(view.text(), typeNames, tagRanges(view.text()));
         if (entities.isEmpty()) {
             return text;
         }
         StringBuilder result = new StringBuilder(text.length() + entities.size() * 24);
         int last = 0;
         for (DetectedEntity entity : entities) {
-            result.append(text, last, entity.getStart());
-            result.append(formatTag(entity.getType(), assignId(entity.getType(), entity.getValue(), scope)));
-            last = entity.getEnd();
+            int start = view.originalStart(entity.getStart());
+            int end = view.originalEnd(entity.getEnd());
+            // The original span, invisible characters included, is what gets stored and restored
+            String value = text.substring(start, end);
+            result.append(text, last, start);
+            result.append(formatTag(entity.getType(), assignId(entity.getType(), value, scope)));
+            last = end;
         }
         result.append(text, last, text.length());
         return result.toString();
+    }
+
+    /**
+     * The text the detection patterns run on. Without it, "1234\u200B5678Z" or a
+     * fullwidth "１２３４５６７８Ｚ" reaches the provider in clear although the model reads
+     * it as a DNI: format characters (zero-width, bidi, soft hyphen...) are dropped and
+     * fullwidth ASCII is mapped to ASCII, keeping the offset of every character in the
+     * original text.
+     */
+    record DetectionView(String text, int[] offsets, int originalLength, String original) {
+
+        DetectionView(String text, int[] offsets, int originalLength) {
+            this(text, offsets, originalLength, null);
+        }
+
+        private char originalCharAt(int index) {
+            return original == null ? 0 : original.charAt(index);
+        }
+
+        static DetectionView of(String original) {
+            boolean plain = true;
+            for (int i = 0; i < original.length() && plain; i++) {
+                char c = original.charAt(i);
+                plain = !(Character.getType(c) == Character.FORMAT || Character.isSurrogate(c)
+                        || c >= 0xFF01 && c <= 0xFF5E || c == 0x3000);
+            }
+            if (plain) {
+                return new DetectionView(original, null, original.length());
+            }
+            StringBuilder view = new StringBuilder(original.length());
+            int[] offsets = new int[original.length()];
+            int i = 0;
+            while (i < original.length()) {
+                int cp = original.codePointAt(i);
+                int width = Character.charCount(cp);
+                if (Character.getType(cp) != Character.FORMAT) {
+                    int mapped = cp >= 0xFF01 && cp <= 0xFF5E ? cp - 0xFEE0 : cp == 0x3000 ? ' ' : cp;
+                    for (int k = 0; k < Character.charCount(mapped); k++) {
+                        offsets[view.length() + k] = i + Math.min(k, width - 1);
+                    }
+                    view.appendCodePoint(mapped);
+                }
+                i += width;
+            }
+            return new DetectionView(view.toString(), offsets, original.length(), original);
+        }
+
+        int originalStart(int viewStart) {
+            return offsets == null ? viewStart : offsets[viewStart];
+        }
+
+        /** Exclusive end: one past the original position of the last character of the match. */
+        int originalEnd(int viewEnd) {
+            if (offsets == null) {
+                return viewEnd;
+            }
+            if (viewEnd == 0) {
+                return 0;
+            }
+            int last = offsets[viewEnd - 1];
+            // Include the low surrogate when the last character is supplementary
+            return Character.isHighSurrogate(originalCharAt(last)) ? last + 2 : last + 1;
+        }
     }
 
     private List<int[]> tagRanges(String text) {

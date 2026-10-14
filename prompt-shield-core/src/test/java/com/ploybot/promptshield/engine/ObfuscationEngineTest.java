@@ -556,4 +556,25 @@ class ObfuscationEngineTest {
         assertTrue(restored.contains("612345678"),
                 "Same conversation should be able to restore shared data");
     }
+
+    @org.junit.jupiter.api.Test
+    void invisibleCharactersAndFullwidthDigitsDoNotHideSensitiveData() {
+        ObfuscationEngine shieldEngine = new ObfuscationEngine();
+        ObfuscationScope scope = shieldEngine.forScope("unicode");
+        String[] inputs = {
+                "DNI 1234\u200B5678Z",
+                "DNI 1234\uDB40\uDC205678Z",
+                "DNI \uD83D\uDE00 1234\u00AD5678Z \uD83D\uDE00",
+                "DNI \uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18\uFF3A",
+                "email juan\u200B@example.com",
+                "email juan\uFF20example.com",
+                "tel \uFF16\uFF11\uFF12\uFF13\uFF14\uFF15\uFF16\uFF17\uFF18",
+        };
+        for (String input : inputs) {
+            String obfuscated = scope.obfuscate(input);
+            org.junit.jupiter.api.Assertions.assertTrue(obfuscated.contains("~REDACTED:"), input + " -> " + obfuscated);
+            org.junit.jupiter.api.Assertions.assertFalse(obfuscated.contains("5678"), obfuscated);
+            org.junit.jupiter.api.Assertions.assertEquals(input, scope.restore(obfuscated));
+        }
+    }
 }
