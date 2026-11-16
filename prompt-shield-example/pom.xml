@@ -15,7 +15,7 @@
     <description>Example project using Prompt Shield library with Spring AI</description>
 
     <properties>
-        <spring-ai.version>2.0.1</spring-ai.version>
+        <spring-ai.version>2.0.2</spring-ai.version>
         <maven.deploy.skip>true</maven.deploy.skip>
         <maven.install.skip>true</maven.install.skip>
     </properties>
